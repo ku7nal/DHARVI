@@ -1,6 +1,24 @@
 import { useEffect, useRef, useState } from "react";
 
 type NavItem = "New reconstruction" | "Examples" | "About";
+type PredictionState = "idle" | "processing" | "success" | "error";
+
+type PredictionResult = {
+  id: string;
+  status: "complete";
+  inputImageUrl: string;
+  heightMapUrl: string;
+  width: number;
+  height: number;
+  predictionWidth: number;
+  predictionHeight: number;
+  minHeight: number;
+  maxHeight: number;
+  resultType: "estimated_ndsm";
+  heightUnit: "meters";
+  sourceName: string;
+  isFixture: boolean;
+};
 
 const ACCEPTED_FORMATS = ".png,.jpg,.jpeg,.tif,.tiff";
 
@@ -30,6 +48,9 @@ function App() {
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [isDragging, setIsDragging] = useState(false);
   const [backendStatus, setBackendStatus] = useState<"checking" | "online" | "offline">("checking");
+  const [predictionState, setPredictionState] = useState<PredictionState>("idle");
+  const [prediction, setPrediction] = useState<PredictionResult | null>(null);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -45,6 +66,28 @@ function App() {
   function handleFile(file: File | undefined) {
     if (!file) return;
     setSelectedFile(file);
+    void startPrediction(file);
+  }
+
+  async function startPrediction(file?: File, exampleId?: string) {
+    setPredictionState("processing");
+    setPrediction(null);
+    setErrorMessage(null);
+    const formData = new FormData();
+    if (file) formData.append("file", file);
+    if (exampleId) formData.append("example_id", exampleId);
+
+    try {
+      const response = await fetch("http://localhost:8000/api/predict", { method: "POST", body: formData });
+      const body = await response.json() as PredictionResult | { detail?: string };
+      if (!response.ok) throw new Error("detail" in body ? body.detail : "Prediction could not be created.");
+      setPrediction(body as PredictionResult);
+      setSelectedFile(file ?? null);
+      setPredictionState("success");
+    } catch (error) {
+      setPredictionState("error");
+      setErrorMessage(error instanceof Error ? error.message : "Prediction could not be created.");
+    }
   }
 
   const statusLabel = backendStatus === "online" ? "API connected" : backendStatus === "offline" ? "API offline" : "Checking API";
@@ -116,18 +159,36 @@ function App() {
                 aria-label="Upload aerial image"
               >
                 <div className="upload-illustration"><span className="upload-orbit orbit-one" /><span className="upload-orbit orbit-two" /><span className="upload-core"><Icon name="plus" /></span></div>
-                <h2>{selectedFile ? selectedFile.name : "Bring a scene to life"}</h2>
-                <p>{selectedFile ? "Ready for reconstruction" : "Upload an aerial image to generate an explorable 3D scene."}</p>
-                <button className="primary-button" onClick={() => fileInputRef.current?.click()}>
-                  <Icon name="plus" /> {selectedFile ? "Choose another image" : "Upload aerial image"}
-                </button>
+                {predictionState === "processing" ? <>
+                  <h2>Preparing your reconstruction</h2>
+                  <p>Creating a fixture result so the scene workspace can load.</p>
+                  <div className="progress-track"><span /></div>
+                </> : predictionState === "error" ? <>
+                  <h2>We could not process that image</h2>
+                  <p className="error-copy">{errorMessage}</p>
+                  <button className="primary-button" onClick={() => fileInputRef.current?.click()}><Icon name="plus" /> Try another image</button>
+                </> : predictionState === "success" && prediction ? <>
+                  <h2>Fixture prediction ready</h2>
+                  <p>{prediction.sourceName} is ready to explore as Estimated nDSM.</p>
+                  <div className="prediction-previews">
+                    <figure><img src={`http://localhost:8000${prediction.inputImageUrl}`} alt="Uploaded aerial image" /><figcaption>Input RGB</figcaption></figure>
+                    <figure><img src={`http://localhost:8000${prediction.heightMapUrl}`} alt="Estimated nDSM preview" /><figcaption>Estimated nDSM</figcaption></figure>
+                  </div>
+                  <button className="primary-button" onClick={() => fileInputRef.current?.click()}><Icon name="plus" /> Choose another image</button>
+                </> : <>
+                  <h2>Bring a scene to life</h2>
+                  <p>Upload an aerial image to generate an explorable 3D scene.</p>
+                  <button className="primary-button" onClick={() => fileInputRef.current?.click()}>
+                    <Icon name="plus" /> Upload aerial image
+                  </button>
+                </>}
                 <input ref={fileInputRef} className="visually-hidden" type="file" accept={ACCEPTED_FORMATS} onChange={(event) => handleFile(event.target.files?.[0])} />
                 <div className="supported-formats"><span>PNG</span><span>JPEG</span><span>RGB GeoTIFF</span></div>
-                <button className="text-button" onClick={() => setActiveNav("Examples")}>Try a GAMUS example <span>→</span></button>
+                <button className="text-button" onClick={() => void startPrediction(undefined, "gamus-urban-demo")}>Try a GAMUS example <span>→</span></button>
               </section>
             )}
 
-            {activeNav === "Examples" && <section className="empty-panel"><div className="panel-icon"><Icon name="layers" /></div><h2>Benchmark examples are coming next</h2><p>GAMUS reference scenes will show RGB input, LiDAR nDSM, prediction, error maps, and accuracy metrics.</p></section>}
+            {activeNav === "Examples" && <section className="empty-panel"><div className="panel-icon"><Icon name="layers" /></div><h2>GAMUS examples</h2><p>Load a prepared urban tile to preview the fixture-backed reconstruction workflow.</p><button className="primary-button" onClick={() => { setActiveNav("New reconstruction"); void startPrediction(undefined, "gamus-urban-demo"); }}>Open urban example <span>→</span></button></section>}
             {activeNav === "About" && <section className="empty-panel"><div className="panel-icon"><Icon name="book" /></div><h2>About DepthWizard</h2><p>Explore estimated height above ground from aerial imagery. The first workspace is designed around a fine-tuned DepthAnything V2 model trained on GAMUS.</p></section>}
           </div>
         </div>

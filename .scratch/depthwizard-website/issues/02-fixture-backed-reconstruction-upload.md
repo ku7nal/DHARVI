@@ -4,13 +4,13 @@
 
 **Blocked by:** 01 — Application shell and local workspace
 
-**Status:** ready-for-agent
+**Status:** resolved
 
-- [ ] The upload workspace accepts PNG and JPEG files.
-- [ ] A user can select a built-in GAMUS example without uploading a file.
-- [ ] The frontend sends the input through the prediction API seam.
-- [ ] The backend returns a fixture-backed prediction result with input asset, estimated nDSM asset, dimensions, value range, result type, and processing status.
-- [ ] The frontend displays a visible processing state while the request is active.
-- [ ] A successful response transitions the workspace into a result state.
-- [ ] Failed requests produce an actionable user-facing error.
-- [ ] The original input image is preserved for later comparison.
+- [x] The upload workspace accepts PNG and JPEG files.
+- [x] A user can select a built-in GAMUS example without uploading a file.
+- [x] The frontend sends the input through the prediction API seam.
+- [x] The backend returns a fixture-backed prediction result with input asset, estimated nDSM asset, dimensions, value range, result type, and processing status.
+- [x] The frontend displays a visible processing state while the request is active.
+- [x] A successful response transitions the workspace into a result state.
+- [x] Failed requests produce an actionable user-facing error.
+- [x] The original input image is preserved for later comparison.
