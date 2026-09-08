@@ -62,6 +62,14 @@ function PredictionInspector({ prediction, layers, onToggleLayer }: PredictionIn
           <div><span>Maximum</span><strong>{prediction.maxHeight.toFixed(1)} m</strong></div>
         </div>
         <div className="inspector-note">Accuracy metrics are available for reference-backed benchmark examples. This fixture has no ground-truth comparison.</div>
+        {prediction.geospatial && <div className="geospatial-card">
+          <strong>GeoTIFF metadata</strong>
+          <div className="inspector-stat"><span>CRS</span><strong>{prediction.geospatial.crs ?? "Not defined"}</strong></div>
+          <div className="inspector-stat"><span>Resolution</span><strong>{prediction.geospatial.resolution[0]} × {prediction.geospatial.resolution[1]}</strong></div>
+          <div className="inspector-stat"><span>Bands</span><strong>{prediction.geospatial.bands}</strong></div>
+          <div className="inspector-stat"><span>Bounds</span><strong>{prediction.geospatial.bounds.left.toFixed(4)}, {prediction.geospatial.bounds.bottom.toFixed(4)} → {prediction.geospatial.bounds.right.toFixed(4)}, {prediction.geospatial.bounds.top.toFixed(4)}</strong></div>
+          <small>Rendered in local scene coordinates.</small>
+        </div>}
       </InspectorSection>
 
       <InspectorSection title="Preview" defaultOpen={false}>

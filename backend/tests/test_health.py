@@ -1,8 +1,12 @@
 import unittest
 from io import BytesIO
+from tempfile import NamedTemporaryFile
 
 from fastapi.testclient import TestClient
+import numpy as np
 from PIL import Image
+import rasterio
+from rasterio.transform import from_origin
 
 from app.main import app
 
@@ -64,6 +68,60 @@ class FixturePredictionTests(unittest.TestCase):
         )
 
         self.assertEqual(response.status_code, 415)
+
+    def test_rgb_geotiff_preserves_geospatial_metadata(self) -> None:
+        with NamedTemporaryFile(suffix=".TIF") as raster_file:
+            transform = from_origin(72.8, 19.1, 0.0001, 0.0001)
+            with rasterio.open(
+                raster_file.name,
+                "w",
+                driver="GTiff",
+                width=8,
+                height=6,
+                count=3,
+                dtype="uint8",
+                crs="EPSG:4326",
+                transform=transform,
+            ) as dataset:
+                dataset.write(np.full((3, 6, 8), 120, dtype=np.uint8))
+            raster_file.seek(0)
+            response = self.client.post(
+                "/api/predict",
+                files={"file": ("CITY.TIF", raster_file.read(), "application/octet-stream")},
+            )
+
+        self.assertEqual(response.status_code, 200)
+        result = response.json()
+        self.assertEqual(result["inputFormat"], "geotiff")
+        self.assertEqual(result["geospatial"]["crs"], "EPSG:4326")
+        self.assertEqual(result["geospatial"]["bands"], 3)
+        self.assertEqual(result["geospatial"]["resolution"], [0.0001, 0.0001])
+
+    def test_rgba_geotiff_is_accepted(self) -> None:
+        with NamedTemporaryFile(suffix=".tiff") as raster_file:
+            with rasterio.open(raster_file.name, "w", driver="GTiff", width=4, height=4, count=4, dtype="uint8") as dataset:
+                dataset.write(np.full((4, 4, 4), 180, dtype=np.uint8))
+            raster_file.seek(0)
+            response = self.client.post(
+                "/api/predict",
+                files={"file": ("rgba.tiff", raster_file.read(), "image/tiff")},
+            )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["geospatial"]["bands"], 4)
+
+    def test_multispectral_geotiff_is_rejected(self) -> None:
+        with NamedTemporaryFile(suffix=".tif") as raster_file:
+            with rasterio.open(raster_file.name, "w", driver="GTiff", width=4, height=4, count=5, dtype="uint8") as dataset:
+                dataset.write(np.full((5, 4, 4), 180, dtype=np.uint8))
+            raster_file.seek(0)
+            response = self.client.post(
+                "/api/predict",
+                files={"file": ("multispectral.tif", raster_file.read(), "image/tiff")},
+            )
+
+        self.assertEqual(response.status_code, 415)
+        self.assertIn("RGB or RGBA", response.json()["detail"])
 
 
 if __name__ == "__main__":

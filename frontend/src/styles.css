@@ -159,6 +159,11 @@ h1 { margin-bottom: 0; font-family: "Space Grotesk", sans-serif; font-size: clam
 .inspector-metric-grid span { display: block; margin-bottom: 4px; color: #aaa7b2; font-size: 9px; }
 .inspector-metric-grid strong { color: #615e6c; font-size: 10px; font-weight: 600; }
 .inspector-note { margin-top: 11px; padding: 9px; border-radius: 8px; color: #9996a5; background: #f7f5ff; font-size: 9px; line-height: 1.5; }
+.geospatial-card { margin-top: 10px; padding: 9px; border: 1px solid #e9e6f3; border-radius: 8px; background: #fbfaff; }
+.geospatial-card > strong { display: block; margin-bottom: 3px; color: #686574; font-size: 10px; }
+.geospatial-card .inspector-stat { padding: 5px 0; }
+.geospatial-card .inspector-stat strong { max-width: 145px; overflow-wrap: anywhere; }
+.geospatial-card > small { display: block; margin-top: 5px; color: #aaa7b2; font-size: 8px; }
 .inspector-previews { display: grid; grid-template-columns: 1fr 1fr; gap: 7px; }
 .inspector-previews figure { overflow: hidden; margin: 0; border: 1px solid #ebe9f1; border-radius: 7px; background: #fff; }
 .inspector-previews img { display: block; width: 100%; height: 72px; object-fit: cover; }

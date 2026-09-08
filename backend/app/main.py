@@ -2,10 +2,12 @@ from io import BytesIO
 from pathlib import Path
 from uuid import uuid4
 
+import numpy as np
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from PIL import Image, ImageDraw, ImageFilter, ImageOps
+from rasterio.io import MemoryFile
 
 
 MEDIA_DIR = Path(__file__).resolve().parent.parent / "media"
@@ -60,6 +62,70 @@ def _write_prediction_assets(image: Image.Image, prediction_id: str) -> tuple[st
     return f"/media/{input_path.name}", f"/media/{height_path.name}", height_data
 
 
+def _is_geotiff(filename: str, content_type: str | None) -> bool:
+    return filename.lower().endswith((".tif", ".tiff")) or content_type in {"image/tiff", "image/geotiff"}
+
+
+def _normalize_raster_bands(bands: np.ndarray) -> np.ndarray:
+    if bands.dtype == np.uint8:
+        return bands
+    normalized = np.empty_like(bands, dtype=np.uint8)
+    for index, band in enumerate(bands):
+        values = np.nan_to_num(band.astype(np.float32), nan=0.0, posinf=0.0, neginf=0.0)
+        if np.issubdtype(bands.dtype, np.integer):
+            high = float(np.iinfo(bands.dtype).max)
+            normalized[index] = np.clip(values / max(high, 1.0) * 255, 0, 255).astype(np.uint8)
+            continue
+        low, high = np.percentile(values, [2, 98])
+        if high <= low:
+            normalized[index] = np.zeros_like(values, dtype=np.uint8)
+        else:
+            normalized[index] = np.clip((values - low) / (high - low) * 255, 0, 255).astype(np.uint8)
+    return normalized
+
+
+def _read_geotiff(raw: bytes) -> tuple[Image.Image, dict[str, object]]:
+    try:
+        with MemoryFile(raw).open() as source:
+            if source.count not in (3, 4):
+                raise HTTPException(
+                    status_code=415,
+                    detail=f"This GeoTIFF has {source.count} bands. DepthWizard accepts RGB or RGBA GeoTIFFs only.",
+                )
+            bands = _normalize_raster_bands(source.read())
+            pixels = np.moveaxis(bands, 0, -1)
+            image = Image.fromarray(pixels[:, :, :3], mode="RGB")
+            bounds = source.bounds
+            metadata = {
+                "crs": source.crs.to_string() if source.crs else None,
+                "bounds": {
+                    "left": float(bounds.left),
+                    "bottom": float(bounds.bottom),
+                    "right": float(bounds.right),
+                    "top": float(bounds.top),
+                },
+                "transform": [float(value) for value in source.transform],
+                "resolution": [float(value) for value in source.res],
+                "bands": source.count,
+                "driver": source.driver,
+            }
+            return image, metadata
+    except HTTPException:
+        raise
+    except Exception as error:
+        raise HTTPException(status_code=400, detail="The uploaded GeoTIFF could not be read.") from error
+
+
+def _read_image(raw: bytes, filename: str, content_type: str | None) -> tuple[Image.Image, dict[str, object] | None, str]:
+    if _is_geotiff(filename, content_type):
+        image, metadata = _read_geotiff(raw)
+        return image, metadata, "geotiff"
+    try:
+        return Image.open(BytesIO(raw)).convert("RGB"), None, "image"
+    except Exception as error:
+        raise HTTPException(status_code=400, detail="The uploaded file is not a readable image.") from error
+
+
 @app.post("/api/predict")
 async def predict(
     file: UploadFile | None = File(default=None),
@@ -69,16 +135,14 @@ async def predict(
         raise HTTPException(status_code=400, detail="Upload an image or choose a GAMUS example.")
 
     prediction_id = f"fixture-{uuid4().hex[:10]}"
+    geospatial_metadata: dict[str, object] | None = None
+    input_format = "example"
     if file is not None:
-        allowed_types = {"image/png", "image/jpeg", "image/tiff"}
-        if file.content_type not in allowed_types:
-            raise HTTPException(status_code=415, detail="Use a PNG, JPEG, or RGB GeoTIFF image.")
         raw = await file.read()
-        try:
-            image = Image.open(BytesIO(raw)).convert("RGB")
-        except Exception as error:
-            raise HTTPException(status_code=400, detail="The uploaded file is not a readable image.") from error
         source_name = file.filename or "uploaded-image"
+        if not _is_geotiff(source_name, file.content_type) and file.content_type not in {"image/png", "image/jpeg"}:
+            raise HTTPException(status_code=415, detail="Use a PNG, JPEG, or RGB GeoTIFF image.")
+        image, geospatial_metadata, input_format = _read_image(raw, source_name, file.content_type)
     elif example_id == "gamus-urban-demo":
         image = _fixture_city()
         source_name = "gamus-urban-demo.png"
@@ -103,4 +167,6 @@ async def predict(
         "heightUnit": "meters",
         "sourceName": source_name,
         "isFixture": True,
+        "inputFormat": input_format,
+        "geospatial": geospatial_metadata,
     }

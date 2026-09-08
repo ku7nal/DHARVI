@@ -15,6 +15,17 @@ type PredictionResult = {
   isFixture: boolean;
   gridSize: number;
   heightData: number[];
+  inputFormat: "image" | "geotiff" | "example";
+  geospatial: GeoSpatialMetadata | null;
+};
+
+type GeoSpatialMetadata = {
+  crs: string | null;
+  bounds: { left: number; bottom: number; right: number; top: number };
+  transform: number[];
+  resolution: [number, number];
+  bands: number;
+  driver: string;
 };
 
 type SceneLayers = {
@@ -24,4 +35,4 @@ type SceneLayers = {
   wireframe: boolean;
 };
 
-export type { PredictionResult, SceneLayers };
+export type { GeoSpatialMetadata, PredictionResult, SceneLayers };
