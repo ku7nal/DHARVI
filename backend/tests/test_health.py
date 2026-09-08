@@ -8,7 +8,9 @@ from PIL import Image
 import rasterio
 from rasterio.transform import from_origin
 
+from app import main as main_module
 from app.main import app
+from app.model_service import ModelUnavailableError
 
 
 class HealthEndpointTests(unittest.TestCase):
@@ -24,9 +26,14 @@ class HealthEndpointTests(unittest.TestCase):
 
 class FixturePredictionTests(unittest.TestCase):
     def setUp(self) -> None:
+        self.original_model_service = main_module.model_service
+        main_module.model_service = FakeModelService()
         self.client = TestClient(app)
 
-    def test_uploaded_png_returns_a_fixture_prediction_with_media_assets(self) -> None:
+    def tearDown(self) -> None:
+        main_module.model_service = self.original_model_service
+
+    def test_uploaded_png_returns_a_model_prediction_with_media_assets(self) -> None:
         image_bytes = BytesIO()
         Image.new("RGB", (32, 24), "#8899aa").save(image_bytes, format="PNG")
 
@@ -39,10 +46,14 @@ class FixturePredictionTests(unittest.TestCase):
         result = response.json()
         self.assertEqual(result["status"], "complete")
         self.assertEqual(result["resultType"], "estimated_ndsm")
-        self.assertTrue(result["isFixture"])
+        self.assertFalse(result["isFixture"])
         self.assertEqual(result["sourceName"], "scene.png")
         self.assertEqual(result["gridSize"], 128)
         self.assertEqual(len(result["heightData"]), 128 * 128)
+        self.assertEqual(result["predictionWidth"], 518)
+        self.assertEqual(result["predictionHeight"], 518)
+        self.assertEqual(result["minHeight"], 12.0)
+        self.assertEqual(result["maxHeight"], 12.0)
         self.assertEqual(self.client.get(result["inputImageUrl"]).status_code, 200)
         self.assertEqual(self.client.get(result["heightMapUrl"]).status_code, 200)
 
@@ -54,6 +65,20 @@ class FixturePredictionTests(unittest.TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json()["sourceName"], "gamus-urban-demo.png")
+        self.assertTrue(response.json()["isFixture"])
+
+    def test_model_loading_failure_returns_a_clear_service_error(self) -> None:
+        main_module.model_service = FailingModelService()
+        image_bytes = BytesIO()
+        Image.new("RGB", (32, 24), "#8899aa").save(image_bytes, format="PNG")
+
+        response = self.client.post(
+            "/api/predict",
+            files={"file": ("scene.png", image_bytes.getvalue(), "image/png")},
+        )
+
+        self.assertEqual(response.status_code, 503)
+        self.assertIn("astra.pth", response.json()["detail"])
 
     def test_prediction_requires_an_upload_or_example(self) -> None:
         response = self.client.post("/api/predict")
@@ -145,6 +170,16 @@ class BenchmarkTests(unittest.TestCase):
         metrics = compute_metrics(np.ones((2, 2)), np.ones((2, 2)))
 
         self.assertEqual(metrics, {"rmse": 0.0, "mae": 0.0, "correlation": 0.0})
+
+
+class FakeModelService:
+    def predict(self, image: Image.Image) -> np.ndarray:
+        return np.full((518, 518), 12.0, dtype=np.float32)
+
+
+class FailingModelService:
+    def predict(self, image: Image.Image) -> np.ndarray:
+        raise ModelUnavailableError("The fine-tuned model could not be loaded from astra.pth.")
 
 
 if __name__ == "__main__":

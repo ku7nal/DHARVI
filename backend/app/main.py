@@ -1,4 +1,5 @@
 from io import BytesIO
+import os
 from pathlib import Path
 from uuid import uuid4
 
@@ -9,9 +10,13 @@ from fastapi.staticfiles import StaticFiles
 from PIL import Image, ImageDraw, ImageFilter, ImageOps
 from rasterio.io import MemoryFile
 
+from app.model_service import DepthAnythingModelService, ModelUnavailableError
 
 MEDIA_DIR = Path(__file__).resolve().parent.parent / "media"
 MEDIA_DIR.mkdir(parents=True, exist_ok=True)
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
+CHECKPOINT_PATH = Path(os.getenv("DEPTHWIZARD_CHECKPOINT", PROJECT_ROOT / "astra.pth"))
+model_service = DepthAnythingModelService(CHECKPOINT_PATH)
 
 
 app = FastAPI(title="DepthWizard API", version="0.1.0")
@@ -54,7 +59,7 @@ def _fixture_city() -> Image.Image:
     return image
 
 
-def _write_prediction_assets(image: Image.Image, prediction_id: str) -> tuple[str, str, list[float]]:
+def _write_fixture_prediction_assets(image: Image.Image, prediction_id: str) -> tuple[str, str, list[float]]:
     image = image.convert("RGB")
     input_path = MEDIA_DIR / f"{prediction_id}-input.png"
     height_path = MEDIA_DIR / f"{prediction_id}-height.png"
@@ -65,6 +70,35 @@ def _write_prediction_assets(image: Image.Image, prediction_id: str) -> tuple[st
     height_preview = ImageOps.autocontrast(grayscale).filter(ImageFilter.GaussianBlur(radius=1.2))
     height_preview.save(height_path, format="PNG")
     return f"/media/{input_path.name}", f"/media/{height_path.name}", height_data
+
+
+def _write_model_prediction_assets(
+    image: Image.Image,
+    height_map: np.ndarray,
+    prediction_id: str,
+) -> tuple[str, str, list[float], float, float]:
+    image = image.convert("RGB")
+    input_path = MEDIA_DIR / f"{prediction_id}-input.png"
+    height_path = MEDIA_DIR / f"{prediction_id}-height.png"
+    image.save(input_path, format="PNG")
+
+    clean_height_map = np.nan_to_num(height_map.astype(np.float32), nan=0.0, posinf=0.0, neginf=0.0)
+    clean_height_map = np.maximum(clean_height_map, 0.0)
+    min_height = float(clean_height_map.min())
+    max_height = float(clean_height_map.max())
+    preview_scale = max(max_height, 1e-6)
+    preview = np.clip(clean_height_map / preview_scale * 255, 0, 255).astype(np.uint8)
+    Image.fromarray(preview, mode="L").save(height_path, format="PNG")
+
+    grid = Image.fromarray(clean_height_map, mode="F").resize((128, 128), Image.Resampling.BILINEAR)
+    height_data = [round(float(value), 3) for value in np.asarray(grid, dtype=np.float32).ravel()]
+    return (
+        f"/media/{input_path.name}",
+        f"/media/{height_path.name}",
+        height_data,
+        min_height,
+        max_height,
+    )
 
 
 def compute_metrics(predicted: np.ndarray, ground_truth: np.ndarray) -> dict[str, float]:
@@ -193,22 +227,39 @@ async def predict(
     if file is None and example_id is None:
         raise HTTPException(status_code=400, detail="Upload an image or choose a GAMUS example.")
 
-    prediction_id = f"fixture-{uuid4().hex[:10]}"
+    prediction_token = uuid4().hex[:10]
+    prediction_id = f"prediction-{prediction_token}"
     geospatial_metadata: dict[str, object] | None = None
     input_format = "example"
+    is_fixture = False
     if file is not None:
         raw = await file.read()
         source_name = file.filename or "uploaded-image"
         if not _is_geotiff(source_name, file.content_type) and file.content_type not in {"image/png", "image/jpeg"}:
             raise HTTPException(status_code=415, detail="Use a PNG, JPEG, or RGB GeoTIFF image.")
         image, geospatial_metadata, input_format = _read_image(raw, source_name, file.content_type)
+        try:
+            height_map = model_service.predict(image)
+        except ModelUnavailableError as error:
+            raise HTTPException(status_code=503, detail=str(error)) from error
+        input_url, height_url, height_data, min_height, max_height = _write_model_prediction_assets(
+            image,
+            height_map,
+            prediction_id,
+        )
     elif example_id == "gamus-urban-demo":
         image = _fixture_city()
         source_name = "gamus-urban-demo.png"
+        is_fixture = True
+        prediction_id = f"fixture-{prediction_token}"
+        input_url, height_url, height_data = _write_fixture_prediction_assets(image, prediction_id)
+        min_height = 0.0
+        max_height = 42.7
     else:
         raise HTTPException(status_code=404, detail="That GAMUS example does not exist.")
 
-    input_url, height_url, height_data = _write_prediction_assets(image, prediction_id)
+    prediction_width = int(height_map.shape[1]) if not is_fixture else 128
+    prediction_height = int(height_map.shape[0]) if not is_fixture else 128
     return {
         "id": prediction_id,
         "status": "complete",
@@ -216,16 +267,16 @@ async def predict(
         "heightMapUrl": height_url,
         "width": image.width,
         "height": image.height,
-        "predictionWidth": 128,
-        "predictionHeight": 128,
+        "predictionWidth": prediction_width,
+        "predictionHeight": prediction_height,
         "gridSize": 128,
         "heightData": height_data,
-        "minHeight": 0,
-        "maxHeight": 42.7,
+        "minHeight": min_height,
+        "maxHeight": max_height,
         "resultType": "estimated_ndsm",
         "heightUnit": "meters",
         "sourceName": source_name,
-        "isFixture": True,
+        "isFixture": is_fixture,
         "inputFormat": input_format,
         "geospatial": geospatial_metadata,
     }

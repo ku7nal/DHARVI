@@ -160,7 +160,7 @@ function App() {
                     <p className="eyebrow">Interactive reconstruction</p>
                     <h2>{prediction.sourceName}</h2>
                   </div>
-                  <div className="result-badge"><span className="status-dot online" /> Fixture result</div>
+                  <div className="result-badge"><span className="status-dot online" /> {prediction.isFixture ? "Fixture result" : "Live model result"}</div>
                 </div>
                 <div className="result-body">
                   <ReconstructionViewer
@@ -190,7 +190,7 @@ function App() {
                 <div className="upload-illustration"><span className="upload-orbit orbit-one" /><span className="upload-orbit orbit-two" /><span className="upload-core"><Icon name="plus" /></span></div>
                 {predictionState === "processing" ? <>
                   <h2>Preparing your reconstruction</h2>
-                  <p>Creating a fixture result so the scene workspace can load.</p>
+                  <p>Running the fine-tuned DepthAnything V2 model.</p>
                   <div className="progress-track"><span /></div>
                 </> : predictionState === "error" ? <>
                   <h2>We could not process that image</h2>

@@ -37,7 +37,7 @@ function PredictionInspector({ prediction, layers, onToggleLayer }: PredictionIn
     <aside className="prediction-inspector" aria-label="Prediction analysis inspector">
       <div className="inspector-title-row">
         <div><p className="eyebrow">Result details</p><h3>Inspector</h3></div>
-        <span className="fixture-label">Fixture</span>
+        <span className="fixture-label">{prediction.isFixture ? "Fixture" : "Live model"}</span>
       </div>
 
       <InspectorSection title="Scene">
@@ -61,7 +61,7 @@ function PredictionInspector({ prediction, layers, onToggleLayer }: PredictionIn
           <div><span>Minimum</span><strong>{prediction.minHeight.toFixed(1)} m</strong></div>
           <div><span>Maximum</span><strong>{prediction.maxHeight.toFixed(1)} m</strong></div>
         </div>
-        <div className="inspector-note">Accuracy metrics are available for reference-backed benchmark examples. This fixture has no ground-truth comparison.</div>
+        <div className="inspector-note">Accuracy metrics are available for reference-backed benchmark examples. This prediction is an estimated nDSM, not an absolute DSM.</div>
         {prediction.geospatial && <div className="geospatial-card">
           <strong>GeoTIFF metadata</strong>
           <div className="inspector-stat"><span>CRS</span><strong>{prediction.geospatial.crs ?? "Not defined"}</strong></div>
