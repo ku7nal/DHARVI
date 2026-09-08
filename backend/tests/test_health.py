@@ -124,5 +124,28 @@ class FixturePredictionTests(unittest.TestCase):
         self.assertIn("RGB or RGBA", response.json()["detail"])
 
 
+class BenchmarkTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self.client = TestClient(app)
+
+    def test_benchmarks_return_reference_prediction_error_assets_and_metrics(self) -> None:
+        response = self.client.get("/api/benchmarks")
+
+        self.assertEqual(response.status_code, 200)
+        benchmark = response.json()["benchmarks"][0]
+        self.assertEqual(benchmark["sourceDataset"], "GAMUS")
+        self.assertEqual(benchmark["referenceStatus"], "scaffold_fixture")
+        for asset_key in ("inputImageUrl", "groundTruthUrl", "predictionUrl", "errorMapUrl"):
+            self.assertEqual(self.client.get(benchmark[asset_key]).status_code, 200)
+        self.assertEqual(set(benchmark["metrics"]), {"rmse", "mae", "correlation"})
+
+    def test_metrics_are_zero_for_identical_arrays_and_safe_for_flat_arrays(self) -> None:
+        from app.main import compute_metrics
+
+        metrics = compute_metrics(np.ones((2, 2)), np.ones((2, 2)))
+
+        self.assertEqual(metrics, {"rmse": 0.0, "mae": 0.0, "correlation": 0.0})
+
+
 if __name__ == "__main__":
     unittest.main()

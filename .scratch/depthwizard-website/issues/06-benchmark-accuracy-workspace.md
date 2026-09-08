@@ -4,14 +4,14 @@
 
 **Blocked by:** 02 — Fixture-backed reconstruction upload
 
-**Status:** ready-for-agent
+**Status:** resolved
 
-- [ ] The Examples navigation opens a benchmark workspace.
-- [ ] A benchmark example displays its RGB input.
-- [ ] A benchmark example displays matching ground-truth LiDAR nDSM.
-- [ ] A benchmark example displays the predicted nDSM.
-- [ ] A benchmark example displays an error map.
-- [ ] The benchmark view displays RMSE, MAE, and Pearson correlation.
-- [ ] The benchmark view clearly identifies reference-backed metrics.
-- [ ] Arbitrary uploads display diagnostics but no fabricated accuracy score.
-- [ ] Metric calculations are verified against small known arrays, including safe handling for degenerate correlation cases.
+- [x] The Examples navigation opens a benchmark workspace.
+- [x] A benchmark example displays its RGB input.
+- [x] A benchmark example displays matching ground-truth LiDAR nDSM.
+- [x] A benchmark example displays the predicted nDSM.
+- [x] A benchmark example displays an error map.
+- [x] The benchmark view displays RMSE, MAE, and Pearson correlation.
+- [x] The benchmark view clearly identifies reference-backed metrics.
+- [x] Arbitrary uploads display diagnostics but no fabricated accuracy score.
+- [x] Metric calculations are verified against small known arrays, including safe handling for degenerate correlation cases.

@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from "react";
+import { BenchmarkWorkspace } from "./components/BenchmarkWorkspace";
 import { PredictionInspector } from "./components/PredictionInspector";
 import { ReconstructionViewer } from "./scene/ReconstructionViewer";
-import type { PredictionResult, SceneLayers } from "./types";
+import type { BenchmarkResult, PredictionResult, SceneLayers } from "./types";
 
 type NavItem = "New reconstruction" | "Examples" | "About";
 type PredictionState = "idle" | "processing" | "success" | "error";
@@ -38,6 +39,8 @@ function App() {
   const [prediction, setPrediction] = useState<PredictionResult | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [layers, setLayers] = useState<SceneLayers>({ city: true, height: false, rgb: false, wireframe: false });
+  const [benchmark, setBenchmark] = useState<BenchmarkResult | null>(null);
+  const [benchmarkState, setBenchmarkState] = useState<"idle" | "loading" | "ready" | "error">("idle");
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -49,6 +52,19 @@ function App() {
       .then(() => setBackendStatus("online"))
       .catch(() => setBackendStatus("offline"));
   }, []);
+
+  useEffect(() => {
+    if (activeNav !== "Examples" || benchmarkState === "loading" || benchmarkState === "ready") return;
+    setBenchmarkState("loading");
+    fetch("http://localhost:8000/api/benchmarks")
+      .then(async (response) => {
+        const body = await response.json() as { benchmarks?: BenchmarkResult[]; detail?: string };
+        if (!response.ok || !body.benchmarks?.[0]) throw new Error(body.detail ?? "Benchmark examples could not be loaded.");
+        setBenchmark(body.benchmarks[0]);
+        setBenchmarkState("ready");
+      })
+      .catch(() => setBenchmarkState("error"));
+  }, [activeNav, benchmarkState]);
 
   function handleFile(file: File | undefined) {
     if (!file) return;
@@ -193,7 +209,7 @@ function App() {
               </section>
             )}
 
-            {activeNav === "Examples" && <section className="empty-panel"><div className="panel-icon"><Icon name="layers" /></div><h2>GAMUS examples</h2><p>Load a prepared urban tile to preview the fixture-backed reconstruction workflow.</p><button className="primary-button" onClick={() => { setActiveNav("New reconstruction"); void startPrediction(undefined, "gamus-urban-demo"); }}>Open urban example <span>→</span></button></section>}
+            {activeNav === "Examples" && (benchmarkState === "ready" && benchmark ? <BenchmarkWorkspace benchmark={benchmark} /> : <section className="empty-panel"><div className="panel-icon"><Icon name="layers" /></div><h2>{benchmarkState === "error" ? "Benchmark unavailable" : "Loading benchmark examples"}</h2><p>{benchmarkState === "error" ? "Start the backend and try again to load reference comparisons." : "Preparing input, reference, prediction, error map, and accuracy metrics."}</p>{benchmarkState === "error" && <button className="primary-button" onClick={() => setBenchmarkState("idle")}>Try again</button>}</section>)}
             {activeNav === "About" && <section className="empty-panel"><div className="panel-icon"><Icon name="book" /></div><h2>About DepthWizard</h2><p>Explore estimated height above ground from aerial imagery. The first workspace is designed around a fine-tuned DepthAnything V2 model trained on GAMUS.</p></section>}
           </div>
         </div>

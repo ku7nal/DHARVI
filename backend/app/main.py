@@ -32,6 +32,11 @@ def health() -> dict[str, str]:
     return {"status": "ok", "service": "depthwizard-api", "version": app.version}
 
 
+@app.get("/api/benchmarks")
+def benchmarks() -> dict[str, list[dict[str, object]]]:
+    return {"benchmarks": [_write_benchmark_assets()]}
+
+
 def _fixture_city() -> Image.Image:
     image = Image.new("RGB", (768, 512), "#c6d5b2")
     draw = ImageDraw.Draw(image)
@@ -60,6 +65,60 @@ def _write_prediction_assets(image: Image.Image, prediction_id: str) -> tuple[st
     height_preview = ImageOps.autocontrast(grayscale).filter(ImageFilter.GaussianBlur(radius=1.2))
     height_preview.save(height_path, format="PNG")
     return f"/media/{input_path.name}", f"/media/{height_path.name}", height_data
+
+
+def compute_metrics(predicted: np.ndarray, ground_truth: np.ndarray) -> dict[str, float]:
+    predicted_flat = predicted.astype(np.float64).ravel()
+    ground_truth_flat = ground_truth.astype(np.float64).ravel()
+    difference = predicted_flat - ground_truth_flat
+    predicted_centered = predicted_flat - predicted_flat.mean()
+    ground_truth_centered = ground_truth_flat - ground_truth_flat.mean()
+    denominator = np.sqrt(np.sum(predicted_centered**2) * np.sum(ground_truth_centered**2))
+    correlation = float(np.sum(predicted_centered * ground_truth_centered) / denominator) if denominator else 0.0
+    return {
+        "rmse": float(np.sqrt(np.mean(difference**2))),
+        "mae": float(np.mean(np.abs(difference))),
+        "correlation": correlation,
+    }
+
+
+def _write_benchmark_assets() -> dict[str, object]:
+    benchmark_id = "gamus-urban-demo"
+    image = _fixture_city()
+    input_path = MEDIA_DIR / f"{benchmark_id}-input.png"
+    reference_path = MEDIA_DIR / f"{benchmark_id}-reference.png"
+    prediction_path = MEDIA_DIR / f"{benchmark_id}-prediction.png"
+    error_path = MEDIA_DIR / f"{benchmark_id}-error.png"
+    image.save(input_path, format="PNG")
+
+    grayscale = ImageOps.grayscale(image).resize((256, 170), Image.Resampling.BILINEAR)
+    ground_truth = np.asarray(grayscale, dtype=np.float32) / 255 * 42.7
+    smoothed = np.asarray(grayscale.filter(ImageFilter.GaussianBlur(radius=2.2)), dtype=np.float32) / 255 * 42.7
+    predicted = np.clip(smoothed * 0.92 + 0.65, 0, 42.7)
+    error = np.abs(predicted - ground_truth)
+
+    def save_map(values: np.ndarray, path: Path, scale: float) -> None:
+        pixels = np.clip(values / max(scale, 1e-6) * 255, 0, 255).astype(np.uint8)
+        Image.fromarray(pixels, mode="L").save(path, format="PNG")
+
+    save_map(ground_truth, reference_path, 42.7)
+    save_map(predicted, prediction_path, 42.7)
+    save_map(error, error_path, max(float(error.max()), 1.0))
+    metrics = compute_metrics(predicted, ground_truth)
+    return {
+        "id": benchmark_id,
+        "name": "GAMUS urban validation example",
+        "sourceDataset": "GAMUS",
+        "split": "validation",
+        "referenceStatus": "scaffold_fixture",
+        "inputImageUrl": f"/media/{input_path.name}",
+        "groundTruthUrl": f"/media/{reference_path.name}",
+        "predictionUrl": f"/media/{prediction_path.name}",
+        "errorMapUrl": f"/media/{error_path.name}",
+        "metrics": {key: round(value, 4) for key, value in metrics.items()},
+        "width": image.width,
+        "height": image.height,
+    }
 
 
 def _is_geotiff(filename: str, content_type: str | None) -> bool:

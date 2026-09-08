@@ -35,4 +35,19 @@ type SceneLayers = {
   wireframe: boolean;
 };
 
-export type { GeoSpatialMetadata, PredictionResult, SceneLayers };
+type BenchmarkResult = {
+  id: string;
+  name: string;
+  sourceDataset: string;
+  split: string;
+  referenceStatus: "scaffold_fixture" | "validated";
+  inputImageUrl: string;
+  groundTruthUrl: string;
+  predictionUrl: string;
+  errorMapUrl: string;
+  metrics: { rmse: number; mae: number; correlation: number };
+  width: number;
+  height: number;
+};
+
+export type { BenchmarkResult, GeoSpatialMetadata, PredictionResult, SceneLayers };

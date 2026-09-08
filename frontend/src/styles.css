@@ -164,6 +164,21 @@ h1 { margin-bottom: 0; font-family: "Space Grotesk", sans-serif; font-size: clam
 .geospatial-card .inspector-stat { padding: 5px 0; }
 .geospatial-card .inspector-stat strong { max-width: 145px; overflow-wrap: anywhere; }
 .geospatial-card > small { display: block; margin-top: 5px; color: #aaa7b2; font-size: 8px; }
+.benchmark-workspace { flex: 1; min-height: 500px; display: flex; flex-direction: column; overflow: hidden; border: 1px solid #eeedf3; border-radius: 19px; background: #fdfdfe; }
+.benchmark-header { display: flex; align-items: center; justify-content: space-between; gap: 18px; padding: 22px 24px 16px; border-bottom: 1px solid #f0eff4; }
+.benchmark-header .eyebrow { margin: 0 0 6px; }
+.benchmark-header h2 { margin: 0; font-family: "Space Grotesk", sans-serif; font-size: 18px; letter-spacing: -.5px; }
+.benchmark-source { display: flex; align-items: center; gap: 8px; padding: 7px 10px; border: 1px solid #e9e5f8; border-radius: 999px; color: #8a86a0; font-size: 10px; white-space: nowrap; }
+.benchmark-notice { margin: 17px 24px 0; padding: 9px 11px; border-radius: 8px; color: #8c78bd; background: #f5f1ff; font-size: 10px; line-height: 1.5; }
+.benchmark-previews { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; padding: 19px 24px; }
+.benchmark-previews figure { overflow: hidden; margin: 0; border: 1px solid #ebe9f1; border-radius: 10px; background: #fff; }
+.benchmark-previews img { display: block; width: 100%; height: 145px; object-fit: cover; }
+.benchmark-previews figcaption { padding: 9px 10px; color: #777482; font-size: 10px; }
+.benchmark-metrics { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; padding: 0 24px 19px; }
+.benchmark-metrics > div { padding: 13px 14px; border: 1px solid #ebe9f2; border-radius: 10px; background: #fbfaff; }
+.benchmark-metrics span, .benchmark-metrics small { display: block; color: #a29fab; font-size: 9px; }
+.benchmark-metrics strong { display: block; margin: 5px 0 3px; color: #5d586e; font-family: "Space Grotesk", sans-serif; font-size: 22px; letter-spacing: -.6px; }
+.benchmark-footer { display: flex; justify-content: space-between; gap: 12px; margin-top: auto; padding: 13px 24px; border-top: 1px solid #f0eff4; color: #aaa7b2; font-size: 9px; }
 .inspector-previews { display: grid; grid-template-columns: 1fr 1fr; gap: 7px; }
 .inspector-previews figure { overflow: hidden; margin: 0; border: 1px solid #ebe9f1; border-radius: 7px; background: #fff; }
 .inspector-previews img { display: block; width: 100%; height: 72px; object-fit: cover; }
@@ -199,4 +214,9 @@ h1 { margin-bottom: 0; font-family: "Space Grotesk", sans-serif; font-size: clam
   .exaggeration-control input { flex: 1; }
   .result-footer { align-items: start; flex-direction: column; gap: 4px; }
   .result-footer span:nth-child(2) { margin-left: 0; }
+  .benchmark-header { align-items: start; flex-direction: column; }
+  .benchmark-previews { grid-template-columns: 1fr 1fr; padding: 15px; }
+  .benchmark-previews img { height: 110px; }
+  .benchmark-metrics { padding: 0 15px 15px; }
+  .benchmark-footer { align-items: start; flex-direction: column; padding: 12px 15px; }
 }
