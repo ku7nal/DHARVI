@@ -47,16 +47,17 @@ def _fixture_city() -> Image.Image:
     return image
 
 
-def _write_prediction_assets(image: Image.Image, prediction_id: str) -> tuple[str, str]:
+def _write_prediction_assets(image: Image.Image, prediction_id: str) -> tuple[str, str, list[float]]:
     image = image.convert("RGB")
     input_path = MEDIA_DIR / f"{prediction_id}-input.png"
     height_path = MEDIA_DIR / f"{prediction_id}-height.png"
     image.save(input_path, format="PNG")
 
     grayscale = ImageOps.grayscale(image).resize((128, 128), Image.Resampling.BILINEAR)
+    height_data = [round(pixel / 255 * 42.7, 3) for pixel in grayscale.get_flattened_data()]
     height_preview = ImageOps.autocontrast(grayscale).filter(ImageFilter.GaussianBlur(radius=1.2))
     height_preview.save(height_path, format="PNG")
-    return f"/media/{input_path.name}", f"/media/{height_path.name}"
+    return f"/media/{input_path.name}", f"/media/{height_path.name}", height_data
 
 
 @app.post("/api/predict")
@@ -84,7 +85,7 @@ async def predict(
     else:
         raise HTTPException(status_code=404, detail="That GAMUS example does not exist.")
 
-    input_url, height_url = _write_prediction_assets(image, prediction_id)
+    input_url, height_url, height_data = _write_prediction_assets(image, prediction_id)
     return {
         "id": prediction_id,
         "status": "complete",
@@ -94,6 +95,8 @@ async def predict(
         "height": image.height,
         "predictionWidth": 128,
         "predictionHeight": 128,
+        "gridSize": 128,
+        "heightData": height_data,
         "minHeight": 0,
         "maxHeight": 42.7,
         "resultType": "estimated_ndsm",

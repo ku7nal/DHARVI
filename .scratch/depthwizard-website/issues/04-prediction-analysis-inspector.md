@@ -4,12 +4,12 @@
 
 **Blocked by:** 02 — Fixture-backed reconstruction upload
 
-**Status:** ready-for-agent
+**Status:** resolved
 
-- [ ] The inspector contains collapsible Scene, Layers, and Analysis sections.
-- [ ] The Analysis section labels the result as Estimated nDSM in meters or Estimated height above ground.
-- [ ] The Analysis section shows model identity and GAMUS fine-tuning context.
-- [ ] The Analysis section shows image dimensions, prediction dimensions, and estimated nDSM range.
-- [ ] The Layers section toggles stylized city, estimated nDSM surface, RGB texture, and wireframe views.
-- [ ] The RGB preview and height-map preview are available without leaving the result workspace.
-- [ ] The inspector does not display accuracy metrics for an arbitrary fixture upload without reference data.
+- [x] The inspector contains collapsible Scene, Layers, and Analysis sections.
+- [x] The Analysis section labels the result as Estimated nDSM in meters or Estimated height above ground.
+- [x] The Analysis section shows model identity and GAMUS fine-tuning context.
+- [x] The Analysis section shows image dimensions, prediction dimensions, and estimated nDSM range.
+- [x] The Layers section toggles stylized city, estimated nDSM surface, RGB texture, and wireframe views.
+- [x] The RGB preview and height-map preview are available without leaving the result workspace.
+- [x] The inspector does not display accuracy metrics for an arbitrary fixture upload without reference data.

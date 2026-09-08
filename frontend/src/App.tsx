@@ -1,24 +1,10 @@
 import { useEffect, useRef, useState } from "react";
+import { PredictionInspector } from "./components/PredictionInspector";
+import { ReconstructionViewer } from "./scene/ReconstructionViewer";
+import type { PredictionResult, SceneLayers } from "./types";
 
 type NavItem = "New reconstruction" | "Examples" | "About";
 type PredictionState = "idle" | "processing" | "success" | "error";
-
-type PredictionResult = {
-  id: string;
-  status: "complete";
-  inputImageUrl: string;
-  heightMapUrl: string;
-  width: number;
-  height: number;
-  predictionWidth: number;
-  predictionHeight: number;
-  minHeight: number;
-  maxHeight: number;
-  resultType: "estimated_ndsm";
-  heightUnit: "meters";
-  sourceName: string;
-  isFixture: boolean;
-};
 
 const ACCEPTED_FORMATS = ".png,.jpg,.jpeg,.tif,.tiff";
 
@@ -51,6 +37,7 @@ function App() {
   const [predictionState, setPredictionState] = useState<PredictionState>("idle");
   const [prediction, setPrediction] = useState<PredictionResult | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [layers, setLayers] = useState<SceneLayers>({ city: true, height: false, rgb: false, wireframe: false });
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -82,6 +69,7 @@ function App() {
       const body = await response.json() as PredictionResult | { detail?: string };
       if (!response.ok) throw new Error("detail" in body ? body.detail : "Prediction could not be created.");
       setPrediction(body as PredictionResult);
+      setLayers({ city: true, height: false, rgb: false, wireframe: false });
       setSelectedFile(file ?? null);
       setPredictionState("success");
     } catch (error) {
@@ -149,7 +137,32 @@ function App() {
               <div className="content-meta">Estimated nDSM · meters</div>
             </div>
 
-            {activeNav === "New reconstruction" && (
+            {activeNav === "New reconstruction" && predictionState === "success" && prediction ? (
+              <section className="result-card">
+                <div className="result-heading">
+                  <div>
+                    <p className="eyebrow">Interactive reconstruction</p>
+                    <h2>{prediction.sourceName}</h2>
+                  </div>
+                  <div className="result-badge"><span className="status-dot online" /> Fixture result</div>
+                </div>
+                <div className="result-body">
+                  <ReconstructionViewer
+                    heightData={prediction.heightData}
+                    gridSize={prediction.gridSize}
+                    maxHeight={prediction.maxHeight}
+                    layers={layers}
+                    inputImageUrl={`http://localhost:8000${prediction.inputImageUrl}`}
+                  />
+                  <PredictionInspector prediction={prediction} layers={layers} onToggleLayer={(layer) => setLayers((current) => ({ ...current, [layer]: !current[layer] }))} />
+                </div>
+                <div className="result-footer">
+                  <span>Estimated nDSM · meters</span>
+                  <span>{prediction.width} × {prediction.height} input · {prediction.gridSize} × {prediction.gridSize} scene</span>
+                  <button className="text-button" onClick={() => { setPrediction(null); setPredictionState("idle"); setSelectedFile(null); }}>New reconstruction <span>→</span></button>
+                </div>
+              </section>
+            ) : activeNav === "New reconstruction" && (
               <section
                 className={`upload-card ${isDragging ? "dragging" : ""}`}
                 onDragEnter={(event) => { event.preventDefault(); setIsDragging(true); }}
@@ -167,14 +180,6 @@ function App() {
                   <h2>We could not process that image</h2>
                   <p className="error-copy">{errorMessage}</p>
                   <button className="primary-button" onClick={() => fileInputRef.current?.click()}><Icon name="plus" /> Try another image</button>
-                </> : predictionState === "success" && prediction ? <>
-                  <h2>Fixture prediction ready</h2>
-                  <p>{prediction.sourceName} is ready to explore as Estimated nDSM.</p>
-                  <div className="prediction-previews">
-                    <figure><img src={`http://localhost:8000${prediction.inputImageUrl}`} alt="Uploaded aerial image" /><figcaption>Input RGB</figcaption></figure>
-                    <figure><img src={`http://localhost:8000${prediction.heightMapUrl}`} alt="Estimated nDSM preview" /><figcaption>Estimated nDSM</figcaption></figure>
-                  </div>
-                  <button className="primary-button" onClick={() => fileInputRef.current?.click()}><Icon name="plus" /> Choose another image</button>
                 </> : <>
                   <h2>Bring a scene to life</h2>
                   <p>Upload an aerial image to generate an explorable 3D scene.</p>

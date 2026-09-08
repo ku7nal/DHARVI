@@ -37,6 +37,8 @@ class FixturePredictionTests(unittest.TestCase):
         self.assertEqual(result["resultType"], "estimated_ndsm")
         self.assertTrue(result["isFixture"])
         self.assertEqual(result["sourceName"], "scene.png")
+        self.assertEqual(result["gridSize"], 128)
+        self.assertEqual(len(result["heightData"]), 128 * 128)
         self.assertEqual(self.client.get(result["inputImageUrl"]).status_code, 200)
         self.assertEqual(self.client.get(result["heightMapUrl"]).status_code, 200)
 
