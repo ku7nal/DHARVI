@@ -4,14 +4,14 @@
 
 **Blocked by:** 03 — Interactive 3D reconstruction viewer
 
-**Status:** ready-for-agent
+**Status:** resolved
 
-- [ ] The renderer derives an initial building mask from estimated nDSM height values.
-- [ ] Small noisy components are removed through configurable cleanup and minimum-area filtering.
-- [ ] Building regions become clean local footprints suitable for extrusion.
-- [ ] Building footprints are extruded using estimated metric height.
-- [ ] Non-building surfaces use a neutral terrain material rather than unsupported semantic labels.
-- [ ] The stylized city is the default layer after prediction.
-- [ ] Materials use the restrained reference-inspired palette.
-- [ ] Lighting and shadows make building volumes legible from the isometric camera.
-- [ ] The raw estimated nDSM surface remains available as an alternate layer.
+- [x] The renderer derives an initial building mask from estimated nDSM height values.
+- [x] Small noisy components are removed through configurable cleanup and minimum-area filtering.
+- [x] Building regions become clean local footprints suitable for extrusion.
+- [x] Building footprints are extruded using estimated metric height.
+- [x] Non-building surfaces use a neutral terrain material rather than unsupported semantic labels.
+- [x] The stylized city is the default layer after prediction.
+- [x] Materials use the restrained reference-inspired palette.
+- [x] Lighting and shadows make building volumes legible from the isometric camera.
+- [x] The raw estimated nDSM surface remains available as an alternate layer.
