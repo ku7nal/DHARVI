@@ -2,7 +2,7 @@ import { Canvas } from "@react-three/fiber";
 import { OrbitControls, PerspectiveCamera, useTexture } from "@react-three/drei";
 import { Suspense, useMemo, useState } from "react";
 import * as THREE from "three";
-import type { SceneLayers } from "../types";
+import type { BuildingRegion, SceneLayers } from "../types";
 
 type ReconstructionViewerProps = {
   heightData: number[];
@@ -10,20 +10,13 @@ type ReconstructionViewerProps = {
   maxHeight: number;
   layers: SceneLayers;
   inputImageUrl: string;
+  buildingRegions?: BuildingRegion[];
 };
 
 type CameraMode = "isometric" | "top";
 
 const WORLD_WIDTH = 15;
 const WORLD_DEPTH = 11;
-
-type BuildingRegion = {
-  centerX: number;
-  centerZ: number;
-  width: number;
-  depth: number;
-  height: number;
-};
 
 function createSurfaceGeometry(heightData: number[], gridSize: number, maxHeight: number, exaggeration: number) {
   const surface = new THREE.PlaneGeometry(WORLD_WIDTH, WORLD_DEPTH, gridSize - 1, gridSize - 1);
@@ -71,8 +64,7 @@ function extractBuildingRegions(heightData: number[], gridSize: number, maxHeigh
       }
 
       const minimumArea = 8;
-      const maximumArea = gridSize * gridSize * 0.16;
-      if (cells.length < minimumArea || cells.length > maximumArea) continue;
+      if (cells.length < minimumArea) continue;
       const rows = cells.map(([cellRow]) => cellRow);
       const columns = cells.map(([, cellColumn]) => cellColumn);
       const minRow = Math.min(...rows);
@@ -80,40 +72,66 @@ function extractBuildingRegions(heightData: number[], gridSize: number, maxHeigh
       const minColumn = Math.min(...columns);
       const maxColumn = Math.max(...columns);
       const averageHeight = cells.reduce((total, [cellRow, cellColumn]) => total + heightData[indexFor(cellRow, cellColumn)], 0) / cells.length;
-      const centerX = ((minColumn + maxColumn) / 2 / (gridSize - 1) - 0.5) * WORLD_WIDTH;
-      const centerZ = ((minRow + maxRow) / 2 / (gridSize - 1) - 0.5) * WORLD_DEPTH;
+      const centerX = ((minColumn + maxColumn) / 2 / (gridSize - 1) - 0.5);
+      const centerZ = ((minRow + maxRow) / 2 / (gridSize - 1) - 0.5);
       regions.push({
         centerX,
         centerZ,
-        width: Math.max((maxColumn - minColumn + 1) / gridSize * WORLD_WIDTH, 0.22),
-        depth: Math.max((maxRow - minRow + 1) / gridSize * WORLD_DEPTH, 0.22),
+        width: Math.max((maxColumn - minColumn + 1) / gridSize, 0.02),
+        depth: Math.max((maxRow - minRow + 1) / gridSize, 0.02),
         height: Math.max(averageHeight, maxHeight * 0.18),
+        roofType: "flat",
+        source: "browser_fallback",
       });
     }
   }
   return regions;
 }
 
+function createRoofGeometry(roofType: BuildingRegion["roofType"], width: number, depth: number, roofHeight: number) {
+  if (roofType === "flat") {
+    const thickness = Math.max(roofHeight, 0.05);
+    const geometry = new THREE.BoxGeometry(width, thickness, depth);
+    geometry.translate(0, thickness / 2, 0);
+    return geometry;
+  }
+  const halfWidth = width / 2;
+  const halfDepth = depth / 2;
+  const y = Math.max(roofHeight, 0.08);
+  const vertices = roofType === "hipped"
+    ? [-halfWidth, 0, -halfDepth, halfWidth, 0, -halfDepth, halfWidth, 0, halfDepth, -halfWidth, 0, halfDepth, 0, y, -halfDepth * 0.35, 0, y, halfDepth * 0.35]
+    : [-halfWidth, 0, -halfDepth, halfWidth, 0, -halfDepth, halfWidth, 0, halfDepth, -halfWidth, 0, halfDepth, 0, y, -halfDepth, 0, y, halfDepth];
+  const indices = roofType === "hipped"
+    ? [0, 1, 4, 1, 2, 5, 2, 3, 5, 3, 0, 4, 0, 4, 5, 0, 5, 3, 1, 2, 5, 1, 5, 4]
+    : [0, 1, 4, 0, 4, 3, 1, 2, 5, 1, 5, 4, 3, 4, 5, 3, 5, 2];
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute("position", new THREE.Float32BufferAttribute(vertices, 3));
+  geometry.setIndex(indices);
+  geometry.computeVertexNormals();
+  return geometry;
+}
+
 function TerrainBase() {
   return <mesh rotation={[-Math.PI / 2, 0, 0]} receiveShadow position={[0, -0.03, 0]}><planeGeometry args={[WORLD_WIDTH, WORLD_DEPTH]} /><meshStandardMaterial color="#b6c99e" roughness={1} /></mesh>;
 }
 
-function StylizedCity({ heightData, gridSize, maxHeight, exaggeration, wireframe }: ReconstructionViewerProps & { exaggeration: number; wireframe: boolean }) {
-  const regions = useMemo(() => extractBuildingRegions(heightData, gridSize, maxHeight), [gridSize, heightData, maxHeight]);
+function StylizedCity({ heightData, gridSize, maxHeight, exaggeration, buildingRegions, wireframe }: Omit<ReconstructionViewerProps, "layers" | "inputImageUrl"> & { exaggeration: number; wireframe: boolean }) {
+  const regions = useMemo(() => buildingRegions?.length ? buildingRegions : extractBuildingRegions(heightData, gridSize, maxHeight), [buildingRegions, gridSize, heightData, maxHeight]);
   const verticalScale = 3.6 / Math.max(maxHeight, 1) * exaggeration;
 
   return <group>
     <TerrainBase />
     {regions.map((region, index) => {
       const height = region.height * verticalScale;
-      return <group key={`${region.centerX}-${region.centerZ}-${index}`} position={[region.centerX, height / 2, region.centerZ]}>
+      const width = Math.max(region.width * WORLD_WIDTH, 0.2);
+      const depth = Math.max(region.depth * WORLD_DEPTH, 0.2);
+      return <group key={`${region.centerX}-${region.centerZ}-${index}`} position={[region.centerX * WORLD_WIDTH, 0, region.centerZ * WORLD_DEPTH]}>
         <mesh castShadow receiveShadow>
-          <boxGeometry args={[region.width, height, region.depth]} />
+          <boxGeometry args={[width, height, depth]} />
           <meshStandardMaterial color={wireframe ? "#9b94bd" : index % 3 === 0 ? "#c7cbd1" : "#b6beca"} roughness={0.77} wireframe={wireframe} />
         </mesh>
-        {!wireframe && <mesh position={[0, height / 2 + 0.035, 0]} castShadow>
-          <boxGeometry args={[region.width * 0.82, 0.07, region.depth * 0.82]} />
-          <meshStandardMaterial color="#d8dbe0" roughness={0.7} />
+        {!wireframe && <mesh geometry={createRoofGeometry(region.roofType, width * 0.94, depth * 0.94, region.roofType === "flat" ? 0.08 : Math.min(height * 0.3, 0.8))} position={[0, height, 0]} castShadow>
+          <meshStandardMaterial color={region.roofType === "flat" ? "#d8dbe0" : "#c9ced6"} roughness={0.7} />
         </mesh>}
       </group>;
     })}
@@ -135,7 +153,7 @@ function RgbSurface({ heightData, gridSize, maxHeight, exaggeration, inputImageU
   return <mesh geometry={geometry} position={[0, 0.015, 0]}><meshBasicMaterial map={texture} polygonOffset polygonOffsetFactor={-1} polygonOffsetUnits={-1} /></mesh>;
 }
 
-function SceneContents({ heightData, gridSize, maxHeight, exaggeration, cameraMode, layers, inputImageUrl }: ReconstructionViewerProps & { exaggeration: number; cameraMode: CameraMode }) {
+function SceneContents({ heightData, gridSize, maxHeight, exaggeration, cameraMode, layers, inputImageUrl, buildingRegions }: ReconstructionViewerProps & { exaggeration: number; cameraMode: CameraMode }) {
   const cameraPosition: [number, number, number] = cameraMode === "isometric" ? [12, 11, 14] : [0, 18, 0.01];
 
   return (
@@ -144,7 +162,7 @@ function SceneContents({ heightData, gridSize, maxHeight, exaggeration, cameraMo
       <ambientLight intensity={1.6} />
       <directionalLight castShadow intensity={2.2} position={[7, 13, 8]} shadow-mapSize={[2048, 2048]} />
       <directionalLight intensity={0.55} position={[-8, 5, -4]} color="#d7d1ff" />
-      {layers.city && <StylizedCity heightData={heightData} gridSize={gridSize} maxHeight={maxHeight} exaggeration={exaggeration} layers={layers} inputImageUrl={inputImageUrl} wireframe={layers.wireframe} />}
+      {layers.city && <StylizedCity heightData={heightData} gridSize={gridSize} maxHeight={maxHeight} exaggeration={exaggeration} buildingRegions={buildingRegions} wireframe={layers.wireframe} />}
       <HeightSurface heightData={heightData} gridSize={gridSize} maxHeight={maxHeight} exaggeration={exaggeration} layers={layers} inputImageUrl={inputImageUrl} />
       {layers.rgb && <Suspense fallback={null}><RgbSurface heightData={heightData} gridSize={gridSize} maxHeight={maxHeight} exaggeration={exaggeration} layers={layers} inputImageUrl={inputImageUrl} /></Suspense>}
       <gridHelper args={[22, 22, "#d5d1e4", "#e5e3ed"]} position={[0, -0.04, 0]} />
@@ -154,7 +172,7 @@ function SceneContents({ heightData, gridSize, maxHeight, exaggeration, cameraMo
   );
 }
 
-function ReconstructionViewer({ heightData, gridSize, maxHeight, layers, inputImageUrl }: ReconstructionViewerProps) {
+function ReconstructionViewer({ heightData, gridSize, maxHeight, layers, inputImageUrl, buildingRegions }: ReconstructionViewerProps) {
   const [cameraMode, setCameraMode] = useState<CameraMode>("isometric");
   const [exaggeration, setExaggeration] = useState(1);
   const [resetKey, setResetKey] = useState(0);
@@ -162,7 +180,7 @@ function ReconstructionViewer({ heightData, gridSize, maxHeight, layers, inputIm
   return (
     <div className="reconstruction-viewer">
       <Canvas key={`${cameraMode}-${resetKey}`} shadows dpr={[1, 2]} camera={{ position: [12, 11, 14], fov: 36 }}>
-        <SceneContents heightData={heightData} gridSize={gridSize} maxHeight={maxHeight} exaggeration={exaggeration} cameraMode={cameraMode} layers={layers} inputImageUrl={inputImageUrl} />
+        <SceneContents heightData={heightData} gridSize={gridSize} maxHeight={maxHeight} exaggeration={exaggeration} cameraMode={cameraMode} layers={layers} inputImageUrl={inputImageUrl} buildingRegions={buildingRegions} />
       </Canvas>
       <div className="scene-toolbar" aria-label="Scene controls">
         <button className={cameraMode === "isometric" ? "selected" : ""} onClick={() => setCameraMode("isometric")}>Isometric</button>

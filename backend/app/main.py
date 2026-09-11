@@ -17,6 +17,7 @@ MEDIA_DIR.mkdir(parents=True, exist_ok=True)
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 CHECKPOINT_PATH = Path(os.getenv("DEPTHWIZARD_CHECKPOINT", PROJECT_ROOT / "astra.pth"))
 model_service = DepthAnythingModelService(CHECKPOINT_PATH)
+SCENE_GRID_SIZE = 256
 
 
 app = FastAPI(title="DepthWizard API", version="0.1.0")
@@ -90,7 +91,7 @@ def _write_model_prediction_assets(
     preview = np.clip(clean_height_map / preview_scale * 255, 0, 255).astype(np.uint8)
     Image.fromarray(preview, mode="L").save(height_path, format="PNG")
 
-    grid = Image.fromarray(clean_height_map, mode="F").resize((128, 128), Image.Resampling.BILINEAR)
+    grid = Image.fromarray(clean_height_map, mode="F").resize((SCENE_GRID_SIZE, SCENE_GRID_SIZE), Image.Resampling.BILINEAR)
     height_data = [round(float(value), 3) for value in np.asarray(grid, dtype=np.float32).ravel()]
     return (
         f"/media/{input_path.name}",
@@ -99,6 +100,59 @@ def _write_model_prediction_assets(
         min_height,
         max_height,
     )
+
+
+def _building_regions(height_data: list[float], grid_size: int, max_height: float) -> list[dict[str, object]]:
+    """Extract conservative, small-building-friendly regions from the estimated nDSM.
+
+    This is deliberately a fallback until a GAMUS semantic head is trained. The
+    renderer receives explicit footprints instead of repeating the old browser-side
+    threshold/blob logic, and the response labels the source as height-derived.
+    """
+    values = np.asarray(height_data, dtype=np.float32).reshape((grid_size, grid_size))
+    non_zero = values[values > max(float(values.min()), 1e-3)]
+    if non_zero.size == 0:
+        return []
+    threshold = max(float(np.percentile(non_zero, 72)), max_height * 0.2, 0.75)
+    mask = values >= threshold
+    visited = np.zeros(mask.shape, dtype=bool)
+    regions: list[dict[str, object]] = []
+    for row in range(grid_size):
+        for column in range(grid_size):
+            if not mask[row, column] or visited[row, column]:
+                continue
+            stack = [(row, column)]
+            visited[row, column] = True
+            cells: list[tuple[int, int]] = []
+            while stack:
+                current_row, current_column = stack.pop()
+                cells.append((current_row, current_column))
+                for row_delta, column_delta in ((-1, 0), (1, 0), (0, -1), (0, 1)):
+                    next_row = current_row + row_delta
+                    next_column = current_column + column_delta
+                    if 0 <= next_row < grid_size and 0 <= next_column < grid_size and mask[next_row, next_column] and not visited[next_row, next_column]:
+                        visited[next_row, next_column] = True
+                        stack.append((next_row, next_column))
+            # Preserve small structures; only isolated single-pixel noise is removed.
+            if len(cells) < 2:
+                continue
+            rows = [cell[0] for cell in cells]
+            columns = [cell[1] for cell in cells]
+            min_row, max_row = min(rows), max(rows)
+            min_column, max_column = min(columns), max(columns)
+            region_heights = np.asarray([values[row, column] for row, column in cells])
+            spread = float(np.percentile(region_heights, 90) - np.percentile(region_heights, 10))
+            roof_type = "flat" if spread <= max(0.8, max_height * 0.06) else "gabled"
+            regions.append({
+                "centerX": ((min_column + max_column) / 2 / max(grid_size - 1, 1) - 0.5),
+                "centerZ": ((min_row + max_row) / 2 / max(grid_size - 1, 1) - 0.5),
+                "width": (max_column - min_column + 1) / grid_size,
+                "depth": (max_row - min_row + 1) / grid_size,
+                "height": float(np.percentile(region_heights, 70)),
+                "roofType": roof_type,
+                "source": "height_threshold_fallback",
+            })
+    return regions
 
 
 def compute_metrics(predicted: np.ndarray, ground_truth: np.ndarray) -> dict[str, float]:
@@ -186,6 +240,15 @@ def _read_geotiff(raw: bytes) -> tuple[Image.Image, dict[str, object]]:
                     detail=f"This GeoTIFF has {source.count} bands. DepthWizard accepts RGB or RGBA GeoTIFFs only.",
                 )
             bands = _normalize_raster_bands(source.read())
+            valid_mask = source.dataset_mask() > 0
+            if not np.all(valid_mask):
+                # Do not let nodata become a false zero-height visual signal. The
+                # model still receives an RGB image, but invalid pixels are filled
+                # from valid-image statistics and the mask is reported explicitly.
+                for band_index, band in enumerate(bands):
+                    valid_values = band[valid_mask]
+                    fill_value = int(np.median(valid_values)) if valid_values.size else 0
+                    band[~valid_mask] = fill_value
             pixels = np.moveaxis(bands, 0, -1)
             image = Image.fromarray(pixels[:, :, :3], mode="RGB")
             bounds = source.bounds
@@ -201,6 +264,7 @@ def _read_geotiff(raw: bytes) -> tuple[Image.Image, dict[str, object]]:
                 "resolution": [float(value) for value in source.res],
                 "bands": source.count,
                 "driver": source.driver,
+                "validPixelFraction": float(np.mean(valid_mask)),
             }
             return image, metadata
     except HTTPException:
@@ -260,6 +324,8 @@ async def predict(
 
     prediction_width = int(height_map.shape[1]) if not is_fixture else 128
     prediction_height = int(height_map.shape[0]) if not is_fixture else 128
+    scene_grid_size = int(np.sqrt(len(height_data)))
+    building_regions = _building_regions(height_data, scene_grid_size, max_height)
     return {
         "id": prediction_id,
         "status": "complete",
@@ -269,8 +335,10 @@ async def predict(
         "height": image.height,
         "predictionWidth": prediction_width,
         "predictionHeight": prediction_height,
-        "gridSize": 128,
+        "gridSize": scene_grid_size,
         "heightData": height_data,
+        "buildingRegions": building_regions,
+        "buildingRegionSource": "height_threshold_fallback",
         "minHeight": min_height,
         "maxHeight": max_height,
         "resultType": "estimated_ndsm",

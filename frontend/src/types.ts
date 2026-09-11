@@ -15,8 +15,20 @@ type PredictionResult = {
   isFixture: boolean;
   gridSize: number;
   heightData: number[];
+  buildingRegions: BuildingRegion[];
+  buildingRegionSource: "height_threshold_fallback" | "semantic_head";
   inputFormat: "image" | "geotiff" | "example";
   geospatial: GeoSpatialMetadata | null;
+};
+
+type BuildingRegion = {
+  centerX: number;
+  centerZ: number;
+  width: number;
+  depth: number;
+  height: number;
+  roofType: "flat" | "gabled" | "hipped" | "dome";
+  source: string;
 };
 
 type GeoSpatialMetadata = {
@@ -26,6 +38,7 @@ type GeoSpatialMetadata = {
   resolution: [number, number];
   bands: number;
   driver: string;
+  validPixelFraction?: number;
 };
 
 type SceneLayers = {
@@ -50,4 +63,4 @@ type BenchmarkResult = {
   height: number;
 };
 
-export type { BenchmarkResult, GeoSpatialMetadata, PredictionResult, SceneLayers };
+export type { BenchmarkResult, BuildingRegion, GeoSpatialMetadata, PredictionResult, SceneLayers };

@@ -41,6 +41,7 @@ function App() {
   const [layers, setLayers] = useState<SceneLayers>({ city: true, height: false, rgb: false, wireframe: false });
   const [benchmark, setBenchmark] = useState<BenchmarkResult | null>(null);
   const [benchmarkState, setBenchmarkState] = useState<"idle" | "loading" | "ready" | "error">("idle");
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -98,12 +99,19 @@ function App() {
 
   return (
     <main className="page-shell">
-      <section className="app-window" aria-label="DepthWizard workspace">
+      <section className={`app-window ${sidebarCollapsed ? "sidebar-collapsed" : ""}`} aria-label="DepthWizard workspace">
         <aside className="sidebar">
           <div className="brand-row">
             <BrandMark />
             <span className="brand-name">DepthWizard</span>
-            <button className="icon-button sidebar-collapse" aria-label="Collapse navigation"><Icon name="chevron" /></button>
+            <button
+              className="icon-button sidebar-collapse"
+              aria-label={sidebarCollapsed ? "Expand navigation" : "Collapse navigation"}
+              aria-expanded={!sidebarCollapsed}
+              onClick={() => setSidebarCollapsed((collapsed) => !collapsed)}
+            >
+              <Icon name="chevron" />
+            </button>
           </div>
 
           <nav className="navigation" aria-label="Main navigation">
@@ -167,6 +175,7 @@ function App() {
                     heightData={prediction.heightData}
                     gridSize={prediction.gridSize}
                     maxHeight={prediction.maxHeight}
+                    buildingRegions={prediction.buildingRegions}
                     layers={layers}
                     inputImageUrl={`http://localhost:8000${prediction.inputImageUrl}`}
                   />

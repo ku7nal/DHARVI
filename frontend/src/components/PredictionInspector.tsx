@@ -40,17 +40,17 @@ function PredictionInspector({ prediction, layers, onToggleLayer }: PredictionIn
         <span className="fixture-label">{prediction.isFixture ? "Fixture" : "Live model"}</span>
       </div>
 
-      <InspectorSection title="Scene">
-        <div className="inspector-stat"><span>Model</span><strong>DepthAnything V2 Small</strong></div>
-        <div className="inspector-stat"><span>Fine-tuning</span><strong>GAMUS</strong></div>
-        <div className="inspector-stat"><span>Result</span><strong>Estimated nDSM</strong></div>
-        <div className="inspector-stat"><span>Unit</span><strong>meters</strong></div>
+      <InspectorSection title="Preview">
+        <div className="inspector-previews">
+          <figure><img src={`${API_BASE}${prediction.inputImageUrl}`} alt="Input RGB preview" /></figure>
+          <figure><img src={`${API_BASE}${prediction.heightMapUrl}`} alt="Estimated nDSM preview" /></figure>
+        </div>
       </InspectorSection>
 
       <InspectorSection title="Layers">
         <LayerToggle label="Stylized city" description="Primary scene" active={layers.city} onClick={() => onToggleLayer("city")} />
         <LayerToggle label="Estimated nDSM" description="Height surface" active={layers.height} onClick={() => onToggleLayer("height")} />
-        <LayerToggle label="RGB texture" description="Input imagery" active={layers.rgb} onClick={() => onToggleLayer("rgb")} />
+        <LayerToggle label="RGB relief" description="Optional terrain texture" active={layers.rgb} onClick={() => onToggleLayer("rgb")} />
         <LayerToggle label="Wireframe" description="Mesh structure" active={layers.wireframe} onClick={() => onToggleLayer("wireframe")} />
       </InspectorSection>
 
@@ -62,22 +62,18 @@ function PredictionInspector({ prediction, layers, onToggleLayer }: PredictionIn
           <div><span>Maximum</span><strong>{prediction.maxHeight.toFixed(1)} m</strong></div>
         </div>
         <div className="inspector-note">Accuracy metrics are available for reference-backed benchmark examples. This prediction is an estimated nDSM, not an absolute DSM.</div>
+        <div className="inspector-note">Buildings: {prediction.buildingRegionSource === "semantic_head" ? "GAMUS semantic mask" : "height-derived fallback"} · {prediction.buildingRegions.length} regions</div>
         {prediction.geospatial && <div className="geospatial-card">
           <strong>GeoTIFF metadata</strong>
           <div className="inspector-stat"><span>CRS</span><strong>{prediction.geospatial.crs ?? "Not defined"}</strong></div>
           <div className="inspector-stat"><span>Resolution</span><strong>{prediction.geospatial.resolution[0]} × {prediction.geospatial.resolution[1]}</strong></div>
           <div className="inspector-stat"><span>Bands</span><strong>{prediction.geospatial.bands}</strong></div>
+          {prediction.geospatial.validPixelFraction !== undefined && <div className="inspector-stat"><span>Valid pixels</span><strong>{(prediction.geospatial.validPixelFraction * 100).toFixed(1)}%</strong></div>}
           <div className="inspector-stat"><span>Bounds</span><strong>{prediction.geospatial.bounds.left.toFixed(4)}, {prediction.geospatial.bounds.bottom.toFixed(4)} → {prediction.geospatial.bounds.right.toFixed(4)}, {prediction.geospatial.bounds.top.toFixed(4)}</strong></div>
           <small>Rendered in local scene coordinates.</small>
         </div>}
       </InspectorSection>
 
-      <InspectorSection title="Preview" defaultOpen={false}>
-        <div className="inspector-previews">
-          <figure><img src={`${API_BASE}${prediction.inputImageUrl}`} alt="Input RGB preview" /><figcaption>Input RGB</figcaption></figure>
-          <figure><img src={`${API_BASE}${prediction.heightMapUrl}`} alt="Estimated nDSM preview" /><figcaption>Estimated nDSM</figcaption></figure>
-        </div>
-      </InspectorSection>
     </aside>
   );
 }
