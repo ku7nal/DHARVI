@@ -114,6 +114,11 @@ function createFootprintGeometry(region: BuildingRegion, verticalScale: number) 
   return geometry;
 }
 
+function TexturedRoofMaterial({ inputImageUrl, color }: { inputImageUrl: string; color: string }) {
+  const texture = useTexture(inputImageUrl);
+  return <meshStandardMaterial map={texture} color={color} roughness={0.7} flatShading />;
+}
+
 function createLegacyRoofGeometry(roofType: BuildingRegion["roofType"], width: number, depth: number, roofHeight: number) {
   if (roofType === "flat") {
     const geometry = new THREE.BoxGeometry(width, Math.max(roofHeight, 0.05), depth);
@@ -136,7 +141,7 @@ function TerrainBase() {
   return <mesh rotation={[-Math.PI / 2, 0, 0]} receiveShadow position={[0, 0, 0]}><planeGeometry args={[WORLD_WIDTH, WORLD_DEPTH]} /><meshStandardMaterial color="#b6c99e" roughness={1} /></mesh>;
 }
 
-function StylizedCity({ heightData, gridSize, maxHeight, exaggeration, buildingRegions, wireframe }: Omit<ReconstructionViewerProps, "layers" | "inputImageUrl"> & { exaggeration: number; wireframe: boolean }) {
+function StylizedCity({ heightData, gridSize, maxHeight, exaggeration, buildingRegions, wireframe, inputImageUrl, rgbRoof }: Omit<ReconstructionViewerProps, "layers"> & { exaggeration: number; wireframe: boolean; rgbRoof: boolean }) {
   const regions = useMemo(() => buildingRegions?.length ? buildingRegions : extractBuildingRegions(heightData, gridSize, maxHeight), [buildingRegions, gridSize, heightData, maxHeight]);
   const verticalScale = 3.6 / Math.max(maxHeight, 1) * exaggeration;
 
@@ -158,7 +163,7 @@ function StylizedCity({ heightData, gridSize, maxHeight, exaggeration, buildingR
             <meshStandardMaterial color={materialColor} roughness={0.77} wireframe={wireframe} flatShading />
           </mesh>
           {roofGeometry && <mesh geometry={roofGeometry} position={[0, wallHeight, 0]} castShadow>
-            <meshStandardMaterial color={materialColor} roughness={0.7} wireframe={wireframe} flatShading />
+            {rgbRoof && !wireframe ? <TexturedRoofMaterial inputImageUrl={inputImageUrl} color="#ffffff" /> : <meshStandardMaterial color={materialColor} roughness={0.7} wireframe={wireframe} flatShading />}
           </mesh>}
         </group>;
       }
@@ -199,7 +204,7 @@ function SceneContents({ heightData, gridSize, maxHeight, exaggeration, cameraMo
       <ambientLight intensity={1.15} />
       <directionalLight castShadow intensity={2.6} position={[7, 13, 8]} shadow-mapSize={[2048, 2048]} shadow-bias={-0.0002} />
       <directionalLight intensity={0.38} position={[-8, 5, -4]} color="#d7d1ff" />
-      {layers.city && <StylizedCity heightData={heightData} gridSize={gridSize} maxHeight={maxHeight} exaggeration={exaggeration} buildingRegions={buildingRegions} wireframe={layers.wireframe} />}
+      {layers.city && <Suspense fallback={null}><StylizedCity heightData={heightData} gridSize={gridSize} maxHeight={maxHeight} exaggeration={exaggeration} buildingRegions={buildingRegions} wireframe={layers.wireframe} inputImageUrl={inputImageUrl} rgbRoof={layers.rgb} /></Suspense>}
       {layers.city && <ContactShadows position={[0, 0.01, 0]} opacity={0.32} scale={20} blur={1.4} far={5} resolution={512} color="#555064" />}
       <HeightSurface heightData={heightData} gridSize={gridSize} maxHeight={maxHeight} exaggeration={exaggeration} layers={layers} inputImageUrl={inputImageUrl} />
       {layers.rgb && <Suspense fallback={null}><RgbSurface heightData={heightData} gridSize={gridSize} maxHeight={maxHeight} exaggeration={exaggeration} layers={layers} inputImageUrl={inputImageUrl} /></Suspense>}

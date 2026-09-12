@@ -23,7 +23,7 @@ function polygonGeometry(points: RoofPoint[], rise: number, roofType: BuildingRe
   const width = Math.max(roofBounds.maxX - roofBounds.minX, 0.001);
   const depth = Math.max(roofBounds.maxZ - roofBounds.minZ, 0.001);
   const vertices: number[] = [];
-  const append = (x: number, z: number, y: number) => vertices.push(x, y, z);
+  const append = (x: number, y: number, z: number) => vertices.push(x, y, z);
 
   if (roofType === "gabled" && points.length === 4) {
     const corners = [
@@ -32,10 +32,10 @@ function polygonGeometry(points: RoofPoint[], rise: number, roofType: BuildingRe
     ] as RoofPoint[];
     corners.forEach(([x, z]) => append(x, 0, z));
     if (width >= depth) {
-      append(centerX, 0, roofBounds.minZ);
+      append(centerX, rise, roofBounds.minZ);
       append(centerX, rise, roofBounds.maxZ);
     } else {
-      append(roofBounds.minX, 0, centerZ);
+      append(roofBounds.minX, rise, centerZ);
       append(roofBounds.maxX, rise, centerZ);
     }
     const indices = width >= depth
@@ -44,17 +44,12 @@ function polygonGeometry(points: RoofPoint[], rise: number, roofType: BuildingRe
     const geometry = new THREE.BufferGeometry();
     geometry.setAttribute("position", new THREE.Float32BufferAttribute(vertices, 3));
     geometry.setIndex(indices);
+    addPlanarUv(geometry, roofBounds);
     geometry.computeVertexNormals();
     return geometry;
   }
 
-  points.forEach(([x, z]) => {
-    const normalizedX = Math.abs((x - centerX) / (width / 2));
-    const normalizedZ = Math.abs((z - centerZ) / (depth / 2));
-    const edgeDistance = roofType === "hipped" ? Math.max(normalizedX, normalizedZ) : Math.sqrt(normalizedX ** 2 + normalizedZ ** 2);
-    const pointHeight = roofType === "hipped" ? Math.max(0, rise * (1 - edgeDistance)) : Math.max(0, rise * (1 - Math.min(edgeDistance, 1)));
-    append(x, pointHeight, z);
-  });
+  points.forEach(([x, z]) => append(x, 0, z));
   const centerIndex = points.length;
   append(centerX, rise, centerZ);
   const indices: number[] = [];
@@ -64,8 +59,23 @@ function polygonGeometry(points: RoofPoint[], rise: number, roofType: BuildingRe
   const geometry = new THREE.BufferGeometry();
   geometry.setAttribute("position", new THREE.Float32BufferAttribute(vertices, 3));
   geometry.setIndex(indices);
+  addPlanarUv(geometry, roofBounds);
   geometry.computeVertexNormals();
   return geometry;
+}
+
+function addPlanarUv(geometry: THREE.BufferGeometry, roofBounds: ReturnType<typeof bounds>) {
+  const positions = geometry.getAttribute("position");
+  const width = Math.max(roofBounds.maxX - roofBounds.minX, 0.001);
+  const depth = Math.max(roofBounds.maxZ - roofBounds.minZ, 0.001);
+  const coordinates: number[] = [];
+  for (let index = 0; index < positions.count; index += 1) {
+    coordinates.push(
+      (positions.getX(index) - roofBounds.minX) / width,
+      (positions.getZ(index) - roofBounds.minZ) / depth,
+    );
+  }
+  geometry.setAttribute("uv", new THREE.Float32BufferAttribute(coordinates, 2));
 }
 
 function createRoofGeometry(region: BuildingRegion, verticalScale: number, worldWidth: number, worldDepth: number): THREE.BufferGeometry | null {
@@ -73,6 +83,16 @@ function createRoofGeometry(region: BuildingRegion, verticalScale: number, world
   if (points.length < 3) return null;
   const rise = Math.max((region.roofRise ?? 0) * verticalScale, 0.02);
   if (region.roofType === "flat") {
+    const shape = new THREE.Shape(points.map(([x, z]) => new THREE.Vector2(x, -z)));
+    for (const hole of region.holes ?? []) {
+      if (hole.length >= 3) shape.holes.push(new THREE.Path(hole.map(([x, z]) => new THREE.Vector2(x * worldWidth, -z * worldDepth))));
+    }
+    const geometry = new THREE.ShapeGeometry(shape);
+    geometry.rotateX(-Math.PI / 2);
+    geometry.computeVertexNormals();
+    return geometry;
+  }
+  if ((region.holes?.length ?? 0) > 0) {
     const shape = new THREE.Shape(points.map(([x, z]) => new THREE.Vector2(x, -z)));
     for (const hole of region.holes ?? []) {
       if (hole.length >= 3) shape.holes.push(new THREE.Path(hole.map(([x, z]) => new THREE.Vector2(x * worldWidth, -z * worldDepth))));
