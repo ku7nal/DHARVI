@@ -5,7 +5,7 @@ import * as THREE from "three";
 import type { BuildingRegion, SceneLayers } from "../types";
 import { createRoofGeometry } from "../roofGeometry";
 import { getBuildingLayout } from "../sceneGeometry";
-import { BUILDING, GROUND, LOW_VEGETATION, ROAD, TREE, WATER, prepareSemanticTerrain } from "../semanticTerrain";
+import { GROUND, LOW_VEGETATION, ROAD, TREE, WATER, createSemanticSurfaceGeometry, prepareSemanticTerrain } from "../semanticTerrain";
 
 type ReconstructionViewerProps = {
   heightData: number[];
@@ -35,32 +35,6 @@ function createSurfaceGeometry(heightData: number[], gridSize: number, maxHeight
   positions.needsUpdate = true;
   surface.computeVertexNormals();
   return surface;
-}
-
-function createSemanticSurfaceGeometry(terrainHeights: number[], classes: number[], gridSize: number, classId: number, maxHeight: number, exaggeration: number) {
-  const positions: number[] = [];
-  const indices: number[] = [];
-  const verticalScale = 3.6 / Math.max(maxHeight, 1) * exaggeration;
-  const cellWidth = WORLD_WIDTH / Math.max(gridSize - 1, 1);
-  const cellDepth = WORLD_DEPTH / Math.max(gridSize - 1, 1);
-  for (let row = 0; row < gridSize - 1; row += 1) {
-    for (let column = 0; column < gridSize - 1; column += 1) {
-      const index = row * gridSize + column;
-      if (classes[index] !== classId && classes[index + 1] !== classId && classes[index + gridSize] !== classId && classes[index + gridSize + 1] !== classId) continue;
-      const base = positions.length / 3;
-      const point = (nextRow: number, nextColumn: number) => {
-        const nextIndex = nextRow * gridSize + nextColumn;
-        positions.push((nextColumn / (gridSize - 1) - 0.5) * WORLD_WIDTH, terrainHeights[nextIndex] * verticalScale + 0.012, (nextRow / (gridSize - 1) - 0.5) * WORLD_DEPTH);
-      };
-      point(row, column); point(row, column + 1); point(row + 1, column + 1); point(row + 1, column);
-      indices.push(base, base + 1, base + 2, base, base + 2, base + 3);
-    }
-  }
-  const geometry = new THREE.BufferGeometry();
-  geometry.setAttribute("position", new THREE.Float32BufferAttribute(positions, 3));
-  geometry.setIndex(indices);
-  geometry.computeVertexNormals();
-  return geometry;
 }
 
 function extractBuildingRegions(heightData: number[], gridSize: number, maxHeight: number): BuildingRegion[] {
@@ -185,9 +159,10 @@ function TreeLayer({ terrain, maxHeight, exaggeration, enabled }: { terrain: Ret
     if (classId !== TREE || index % 3 !== 0) return;
     const row = Math.floor(index / terrain.gridSize);
     const column = index % terrain.gridSize;
-    const height = 0.28;
+    const height = 0.22 + Math.min(0.22, Math.max(0, terrain.heights[index]) / Math.max(maxHeight, 1) * 0.22);
+    const radius = 0.1 + height * 0.14;
     trees.push(<mesh key={index} position={[(column / (terrain.gridSize - 1) - 0.5) * WORLD_WIDTH, terrain.heights[index] * verticalScale + height / 2, (row / (terrain.gridSize - 1) - 0.5) * WORLD_DEPTH] as [number, number, number]} castShadow>
-      <coneGeometry args={[0.14, height, 6]} />
+      <coneGeometry args={[radius, height, 6]} />
       <meshStandardMaterial color="#4f8258" roughness={0.95} flatShading />
     </mesh>);
   });

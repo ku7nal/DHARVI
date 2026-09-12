@@ -1,4 +1,8 @@
 import type { SemanticClass } from "./types";
+import * as THREE from "three";
+
+const WORLD_WIDTH = 15;
+const WORLD_DEPTH = 11;
 
 const GROUND = 0;
 const LOW_VEGETATION = 1;
@@ -39,8 +43,9 @@ function prepareSemanticTerrain(
     ? resizeNearest(semanticData, semanticGridSize, gridSize).map((value) => value >= GROUND && value <= TREE ? value : GROUND)
     : Array.from({ length: gridSize * gridSize }, () => GROUND);
   const safeHeights = heightData.map((value) => Number.isFinite(value) ? Math.max(0, value) : 0);
+  const groundHeights = safeHeights.filter((_, index) => classes[index] === GROUND);
   const nonBuildingHeights = safeHeights.filter((_, index) => classes[index] !== BUILDING);
-  const baseHeight = median(nonBuildingHeights, 0);
+  const baseHeight = median(groundHeights.length ? groundHeights : nonBuildingHeights, 0);
   const terrainHeights = safeHeights.map((value, index) => {
     const semanticClass = classes[index];
     if (semanticClass === BUILDING) {
@@ -70,11 +75,34 @@ function prepareSemanticTerrain(
       const nextRow = row + rowDelta;
       const nextColumn = column + columnDelta;
       const nextIndex = nextRow * gridSize + nextColumn;
-      if (nextRow >= 0 && nextRow < gridSize && nextColumn >= 0 && nextColumn < gridSize && classes[nextIndex] !== BUILDING) neighbours.push(terrainHeights[nextIndex]);
+      if (nextRow >= 0 && nextRow < gridSize && nextColumn >= 0 && nextColumn < gridSize && classes[nextIndex] === classes[index]) neighbours.push(terrainHeights[nextIndex]);
     }
-    return median(neighbours, value);
+    return classes[index] === WATER || classes[index] === ROAD ? baseHeight : median(neighbours, value);
   });
   return { heights: smoothed, classes, gridSize };
+}
+
+function createSemanticSurfaceGeometry(terrainHeights: number[], classes: number[], gridSize: number, classId: number, maxHeight: number, exaggeration: number) {
+  const positions: number[] = [];
+  const indices: number[] = [];
+  const verticalScale = 3.6 / Math.max(maxHeight, 1) * exaggeration;
+  for (let row = 0; row < gridSize - 1; row += 1) {
+    for (let column = 0; column < gridSize - 1; column += 1) {
+      const index = row * gridSize + column;
+      if (classes[index] !== classId || classes[index + 1] !== classId || classes[index + gridSize] !== classId || classes[index + gridSize + 1] !== classId) continue;
+      const base = positions.length / 3;
+      for (const [nextRow, nextColumn] of [[row, column], [row, column + 1], [row + 1, column + 1], [row + 1, column]]) {
+        const nextIndex = nextRow * gridSize + nextColumn;
+        positions.push((nextColumn / (gridSize - 1) - 0.5) * WORLD_WIDTH, terrainHeights[nextIndex] * verticalScale + 0.012, (nextRow / (gridSize - 1) - 0.5) * WORLD_DEPTH);
+      }
+      indices.push(base, base + 1, base + 2, base, base + 2, base + 3);
+    }
+  }
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute("position", new THREE.Float32BufferAttribute(positions, 3));
+  geometry.setIndex(indices);
+  geometry.computeVertexNormals();
+  return geometry;
 }
 
 const SEMANTIC_TERRAIN_CLASSES: Array<Pick<SemanticClass, "id" | "name" | "color">> = [
@@ -85,5 +113,5 @@ const SEMANTIC_TERRAIN_CLASSES: Array<Pick<SemanticClass, "id" | "name" | "color
   { id: TREE, name: "tree", color: "#4f8258" },
 ];
 
-export { BUILDING, GROUND, LOW_VEGETATION, ROAD, SEMANTIC_TERRAIN_CLASSES, TREE, WATER, prepareSemanticTerrain };
+export { BUILDING, GROUND, LOW_VEGETATION, ROAD, SEMANTIC_TERRAIN_CLASSES, TREE, WATER, createSemanticSurfaceGeometry, prepareSemanticTerrain };
 export type { SemanticTerrain };
