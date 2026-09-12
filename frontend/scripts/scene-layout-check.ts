@@ -12,6 +12,12 @@ assert.deepEqual(fixtureBuilding, {
 
 assert.deepEqual(DEFAULT_SCENE_LAYERS, {
   city: true,
+  buildings: true,
+  ground: true,
+  roads: true,
+  water: true,
+  vegetation: true,
+  trees: true,
   height: false,
   rgb: false,
   wireframe: false,

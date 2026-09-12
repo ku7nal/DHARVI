@@ -72,6 +72,12 @@ function PredictionInspector({ prediction, layers, onToggleLayer }: PredictionIn
 
       <InspectorSection title="Layers">
         <LayerToggle label="Stylized city" description="Primary scene" active={layers.city} onClick={() => onToggleLayer("city")} />
+        <LayerToggle label="Buildings" description="Procedural LoD2 roofs and walls" active={layers.buildings} onClick={() => onToggleLayer("buildings")} />
+        <LayerToggle label="Ground" description="Smoothed terrain" active={layers.ground} onClick={() => onToggleLayer("ground")} />
+        <LayerToggle label="Roads" description="Stable road surfaces" active={layers.roads} onClick={() => onToggleLayer("roads")} />
+        <LayerToggle label="Water" description="Stable water surfaces" active={layers.water} onClick={() => onToggleLayer("water")} />
+        <LayerToggle label="Vegetation" description="Low-poly green cover" active={layers.vegetation} onClick={() => onToggleLayer("vegetation")} />
+        <LayerToggle label="Trees" description="Bounded tree geometry" active={layers.trees} onClick={() => onToggleLayer("trees")} />
         <LayerToggle label="Estimated nDSM" description="Height surface" active={layers.height} onClick={() => onToggleLayer("height")} />
         <LayerToggle label="RGB relief" description="Optional terrain texture" active={layers.rgb} onClick={() => onToggleLayer("rgb")} />
         <LayerToggle label="Wireframe" description="Mesh structure" active={layers.wireframe} onClick={() => onToggleLayer("wireframe")} />

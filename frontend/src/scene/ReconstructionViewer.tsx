@@ -1,10 +1,11 @@
 import { Canvas } from "@react-three/fiber";
 import { ContactShadows, OrbitControls, PerspectiveCamera, useTexture } from "@react-three/drei";
-import { Suspense, useMemo, useState } from "react";
+import { Suspense, useMemo, useState, type ReactElement } from "react";
 import * as THREE from "three";
 import type { BuildingRegion, SceneLayers } from "../types";
 import { createRoofGeometry } from "../roofGeometry";
 import { getBuildingLayout } from "../sceneGeometry";
+import { BUILDING, GROUND, LOW_VEGETATION, ROAD, TREE, WATER, prepareSemanticTerrain } from "../semanticTerrain";
 
 type ReconstructionViewerProps = {
   heightData: number[];
@@ -13,6 +14,8 @@ type ReconstructionViewerProps = {
   layers: SceneLayers;
   inputImageUrl: string;
   buildingRegions?: BuildingRegion[];
+  semanticData?: number[] | null;
+  semanticGridSize?: number | null;
 };
 
 type CameraMode = "isometric" | "top";
@@ -32,6 +35,32 @@ function createSurfaceGeometry(heightData: number[], gridSize: number, maxHeight
   positions.needsUpdate = true;
   surface.computeVertexNormals();
   return surface;
+}
+
+function createSemanticSurfaceGeometry(terrainHeights: number[], classes: number[], gridSize: number, classId: number, maxHeight: number, exaggeration: number) {
+  const positions: number[] = [];
+  const indices: number[] = [];
+  const verticalScale = 3.6 / Math.max(maxHeight, 1) * exaggeration;
+  const cellWidth = WORLD_WIDTH / Math.max(gridSize - 1, 1);
+  const cellDepth = WORLD_DEPTH / Math.max(gridSize - 1, 1);
+  for (let row = 0; row < gridSize - 1; row += 1) {
+    for (let column = 0; column < gridSize - 1; column += 1) {
+      const index = row * gridSize + column;
+      if (classes[index] !== classId && classes[index + 1] !== classId && classes[index + gridSize] !== classId && classes[index + gridSize + 1] !== classId) continue;
+      const base = positions.length / 3;
+      const point = (nextRow: number, nextColumn: number) => {
+        const nextIndex = nextRow * gridSize + nextColumn;
+        positions.push((nextColumn / (gridSize - 1) - 0.5) * WORLD_WIDTH, terrainHeights[nextIndex] * verticalScale + 0.012, (nextRow / (gridSize - 1) - 0.5) * WORLD_DEPTH);
+      };
+      point(row, column); point(row, column + 1); point(row + 1, column + 1); point(row + 1, column);
+      indices.push(base, base + 1, base + 2, base, base + 2, base + 3);
+    }
+  }
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute("position", new THREE.Float32BufferAttribute(positions, 3));
+  geometry.setIndex(indices);
+  geometry.computeVertexNormals();
+  return geometry;
 }
 
 function extractBuildingRegions(heightData: number[], gridSize: number, maxHeight: number): BuildingRegion[] {
@@ -141,13 +170,38 @@ function TerrainBase() {
   return <mesh rotation={[-Math.PI / 2, 0, 0]} receiveShadow position={[0, 0, 0]}><planeGeometry args={[WORLD_WIDTH, WORLD_DEPTH]} /><meshStandardMaterial color="#b6c99e" roughness={1} /></mesh>;
 }
 
-function StylizedCity({ heightData, gridSize, maxHeight, exaggeration, buildingRegions, wireframe, inputImageUrl, rgbRoof }: Omit<ReconstructionViewerProps, "layers"> & { exaggeration: number; wireframe: boolean; rgbRoof: boolean }) {
+function SemanticTerrain({ terrain, maxHeight, exaggeration, layers, wireframe }: { terrain: ReturnType<typeof prepareSemanticTerrain>; maxHeight: number; exaggeration: number; layers: SceneLayers; wireframe: boolean }) {
+  const layerDefinitions = [[GROUND, layers.ground, "#b6c99e"], [ROAD, layers.roads, "#e8e1d6"], [WATER, layers.water, "#72aee8"], [LOW_VEGETATION, layers.vegetation, "#83a96f"]] as const;
+  return <group>{layerDefinitions.map(([classId, enabled, color]) => enabled && <mesh key={classId} geometry={createSemanticSurfaceGeometry(terrain.heights, terrain.classes, terrain.gridSize, classId, maxHeight, exaggeration)} receiveShadow>
+    <meshStandardMaterial color={color} roughness={classId === WATER ? 0.28 : 0.95} metalness={classId === WATER ? 0.05 : 0} wireframe={wireframe} flatShading />
+  </mesh>)}<TreeLayer terrain={terrain} maxHeight={maxHeight} exaggeration={exaggeration} enabled={layers.trees} /></group>;
+}
+
+function TreeLayer({ terrain, maxHeight, exaggeration, enabled }: { terrain: ReturnType<typeof prepareSemanticTerrain>; maxHeight: number; exaggeration: number; enabled: boolean }) {
+  if (!enabled) return null;
+  const verticalScale = 3.6 / Math.max(maxHeight, 1) * exaggeration;
+  const trees: ReactElement[] = [];
+  terrain.classes.forEach((classId, index) => {
+    if (classId !== TREE || index % 3 !== 0) return;
+    const row = Math.floor(index / terrain.gridSize);
+    const column = index % terrain.gridSize;
+    const height = 0.28;
+    trees.push(<mesh key={index} position={[(column / (terrain.gridSize - 1) - 0.5) * WORLD_WIDTH, terrain.heights[index] * verticalScale + height / 2, (row / (terrain.gridSize - 1) - 0.5) * WORLD_DEPTH] as [number, number, number]} castShadow>
+      <coneGeometry args={[0.14, height, 6]} />
+      <meshStandardMaterial color="#4f8258" roughness={0.95} flatShading />
+    </mesh>);
+  });
+  return <group>{trees}</group>;
+}
+
+function StylizedCity({ heightData, gridSize, maxHeight, exaggeration, buildingRegions, wireframe, inputImageUrl, rgbRoof, semanticData, semanticGridSize, layers }: Omit<ReconstructionViewerProps, "layers"> & { exaggeration: number; wireframe: boolean; rgbRoof: boolean; layers: SceneLayers }) {
   const regions = useMemo(() => buildingRegions?.length ? buildingRegions : extractBuildingRegions(heightData, gridSize, maxHeight), [buildingRegions, gridSize, heightData, maxHeight]);
+  const terrain = useMemo(() => prepareSemanticTerrain(heightData, gridSize, maxHeight, semanticData, semanticGridSize), [heightData, gridSize, maxHeight, semanticData, semanticGridSize]);
   const verticalScale = 3.6 / Math.max(maxHeight, 1) * exaggeration;
 
   return <group>
-    <TerrainBase />
-    {regions.map((region, index) => {
+    {semanticData?.length ? <SemanticTerrain terrain={terrain} maxHeight={maxHeight} exaggeration={exaggeration} layers={layers} wireframe={wireframe} /> : <TerrainBase />}
+    {layers.buildings && regions.map((region, index) => {
       const height = region.height * verticalScale;
       const layout = getBuildingLayout(height);
       const width = Math.max(region.width * WORLD_WIDTH, 0.2);
@@ -195,7 +249,7 @@ function RgbSurface({ heightData, gridSize, maxHeight, exaggeration, inputImageU
   return <mesh geometry={geometry} position={[0, 0.015, 0]}><meshBasicMaterial map={texture} polygonOffset polygonOffsetFactor={-1} polygonOffsetUnits={-1} /></mesh>;
 }
 
-function SceneContents({ heightData, gridSize, maxHeight, exaggeration, cameraMode, layers, inputImageUrl, buildingRegions }: ReconstructionViewerProps & { exaggeration: number; cameraMode: CameraMode }) {
+function SceneContents({ heightData, gridSize, maxHeight, exaggeration, cameraMode, layers, inputImageUrl, buildingRegions, semanticData, semanticGridSize }: ReconstructionViewerProps & { exaggeration: number; cameraMode: CameraMode }) {
   const cameraPosition: [number, number, number] = cameraMode === "isometric" ? [12, 11, 14] : [0, 18, 0.01];
 
   return (
@@ -204,7 +258,7 @@ function SceneContents({ heightData, gridSize, maxHeight, exaggeration, cameraMo
       <ambientLight intensity={1.15} />
       <directionalLight castShadow intensity={2.6} position={[7, 13, 8]} shadow-mapSize={[2048, 2048]} shadow-bias={-0.0002} />
       <directionalLight intensity={0.38} position={[-8, 5, -4]} color="#d7d1ff" />
-      {layers.city && <Suspense fallback={null}><StylizedCity heightData={heightData} gridSize={gridSize} maxHeight={maxHeight} exaggeration={exaggeration} buildingRegions={buildingRegions} wireframe={layers.wireframe} inputImageUrl={inputImageUrl} rgbRoof={layers.rgb} /></Suspense>}
+      {layers.city && <Suspense fallback={null}><StylizedCity heightData={heightData} gridSize={gridSize} maxHeight={maxHeight} exaggeration={exaggeration} buildingRegions={buildingRegions} wireframe={layers.wireframe} inputImageUrl={inputImageUrl} rgbRoof={layers.rgb} semanticData={semanticData} semanticGridSize={semanticGridSize} layers={layers} /></Suspense>}
       {layers.city && <ContactShadows position={[0, 0.01, 0]} opacity={0.32} scale={20} blur={1.4} far={5} resolution={512} color="#555064" />}
       <HeightSurface heightData={heightData} gridSize={gridSize} maxHeight={maxHeight} exaggeration={exaggeration} layers={layers} inputImageUrl={inputImageUrl} />
       {layers.rgb && <Suspense fallback={null}><RgbSurface heightData={heightData} gridSize={gridSize} maxHeight={maxHeight} exaggeration={exaggeration} layers={layers} inputImageUrl={inputImageUrl} /></Suspense>}
@@ -215,7 +269,7 @@ function SceneContents({ heightData, gridSize, maxHeight, exaggeration, cameraMo
   );
 }
 
-function ReconstructionViewer({ heightData, gridSize, maxHeight, layers, inputImageUrl, buildingRegions }: ReconstructionViewerProps) {
+function ReconstructionViewer({ heightData, gridSize, maxHeight, layers, inputImageUrl, buildingRegions, semanticData, semanticGridSize }: ReconstructionViewerProps) {
   const [cameraMode, setCameraMode] = useState<CameraMode>("isometric");
   const [exaggeration, setExaggeration] = useState(1);
   const [resetKey, setResetKey] = useState(0);
@@ -223,7 +277,7 @@ function ReconstructionViewer({ heightData, gridSize, maxHeight, layers, inputIm
   return (
     <div className="reconstruction-viewer">
       <Canvas key={`${cameraMode}-${resetKey}`} shadows dpr={[1, 2]} camera={{ position: [12, 11, 14], fov: 36 }}>
-        <SceneContents heightData={heightData} gridSize={gridSize} maxHeight={maxHeight} exaggeration={exaggeration} cameraMode={cameraMode} layers={layers} inputImageUrl={inputImageUrl} buildingRegions={buildingRegions} />
+        <SceneContents heightData={heightData} gridSize={gridSize} maxHeight={maxHeight} exaggeration={exaggeration} cameraMode={cameraMode} layers={layers} inputImageUrl={inputImageUrl} buildingRegions={buildingRegions} semanticData={semanticData} semanticGridSize={semanticGridSize} />
       </Canvas>
       <div className="scene-toolbar" aria-label="Scene controls">
         <button className={cameraMode === "isometric" ? "selected" : ""} onClick={() => setCameraMode("isometric")}>Isometric</button>

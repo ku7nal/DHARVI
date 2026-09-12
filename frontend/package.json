@@ -8,7 +8,8 @@
     "build": "tsc -b && vite build",
     "typecheck": "tsc --noEmit",
     "test:scene": "node --experimental-strip-types scripts/scene-layout-check.ts",
-    "test:roof": "node --experimental-strip-types scripts/roof-geometry-check.ts"
+    "test:roof": "node --experimental-strip-types scripts/roof-geometry-check.ts",
+    "test:terrain": "node --experimental-strip-types scripts/semantic-terrain-check.ts"
   },
   "dependencies": {
     "@react-three/drei": "^10.7.6",
