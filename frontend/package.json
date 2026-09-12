@@ -7,7 +7,8 @@
     "dev": "vite",
     "build": "tsc -b && vite build",
     "typecheck": "tsc --noEmit",
-    "test:scene": "node --experimental-strip-types scripts/scene-layout-check.ts"
+    "test:scene": "node --experimental-strip-types scripts/scene-layout-check.ts",
+    "test:roof": "node --experimental-strip-types scripts/roof-geometry-check.ts"
   },
   "dependencies": {
     "@react-three/drei": "^10.7.6",

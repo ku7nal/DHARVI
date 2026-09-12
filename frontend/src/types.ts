@@ -38,6 +38,8 @@ type BuildingRegion = {
   holes?: Array<Array<[number, number]>>;
   groundHeight?: number;
   roofHeight?: number;
+  wallHeight?: number;
+  roofRise?: number;
 };
 
 type SemanticClass = {

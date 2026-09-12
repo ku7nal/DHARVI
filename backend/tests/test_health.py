@@ -86,6 +86,8 @@ class FixturePredictionTests(unittest.TestCase):
         self.assertTrue(result["buildingRegions"])
         self.assertTrue(all(len(region["footprint"]) >= 3 for region in result["buildingRegions"]))
         self.assertTrue(all("groundHeight" in region for region in result["buildingRegions"]))
+        self.assertTrue(all(region["roofType"] in {"flat", "gabled", "hipped", "dome"} for region in result["buildingRegions"]))
+        self.assertTrue(all("wallHeight" in region and "roofRise" in region for region in result["buildingRegions"]))
         semantic_response = self.client.get(result["semanticMapUrl"])
         height_response = self.client.get(result["heightMapUrl"])
         input_response = self.client.get(result["inputImageUrl"])

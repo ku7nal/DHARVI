@@ -2,10 +2,32 @@ import unittest
 
 import numpy as np
 
-from app.building_footprints import extract_building_footprints
+from app.building_footprints import extract_building_footprints, infer_roof_type
 
 
 class BuildingFootprintTests(unittest.TestCase):
+    def test_roof_type_inference_uses_height_profiles(self) -> None:
+        labels = np.zeros((11, 11), dtype=np.uint8)
+        labels[2:9, 2:9] = 2
+        flat = np.full((11, 11), 10, dtype=np.float32)
+        gabled = flat.copy()
+        for column in range(2, 9):
+            gabled[2:9, column] = 10 + (3 - abs(column - 5)) * 2
+        hipped = flat.copy()
+        for row in range(2, 9):
+            for column in range(2, 9):
+                hipped[row, column] = 10 + (3 - max(abs(column - 5), abs(row - 5))) * 2
+        dome = flat.copy()
+        for row in range(2, 9):
+            for column in range(2, 9):
+                radius = np.hypot(column - 5, row - 5) / 3
+                dome[row, column] = 10 + max(0, 1 - radius**2) * 6
+
+        self.assertEqual(infer_roof_type(labels == 2, flat), "flat")
+        self.assertEqual(infer_roof_type(labels == 2, gabled), "gabled")
+        self.assertEqual(infer_roof_type(labels == 2, hipped), "hipped")
+        self.assertEqual(infer_roof_type(labels == 2, dome), "dome")
+
     def test_adjacent_buildings_remain_separate_and_small_building_is_kept(self) -> None:
         labels = np.zeros((12, 16), dtype=np.uint8)
         labels[2:6, 2:5] = 2
@@ -45,6 +67,8 @@ class BuildingFootprintTests(unittest.TestCase):
         self.assertAlmostEqual(region["groundHeight"], 3.0)
         self.assertAlmostEqual(region["height"], 15.0)
         self.assertEqual(region["roofType"], "flat")
+        self.assertAlmostEqual(region["wallHeight"], 15.0)
+        self.assertAlmostEqual(region["roofRise"], 0.0)
 
     def test_one_cell_building_is_kept_when_it_is_above_ground(self) -> None:
         labels = np.zeros((5, 5), dtype=np.uint8)

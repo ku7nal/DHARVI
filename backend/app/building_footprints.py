@@ -11,6 +11,54 @@ from app.semantic_contract import BUILDING_CLASS
 Point = tuple[float, float]
 
 
+def infer_roof_type(mask: np.ndarray, heights: np.ndarray) -> str:
+    """Infer a procedural roof family from height variation inside one footprint."""
+    rows, columns = np.where(mask)
+    values = np.asarray(heights, dtype=np.float32)[mask]
+    finite = np.isfinite(values)
+    if not finite.any():
+        return "flat"
+    rows = rows[finite]
+    columns = columns[finite]
+    values = values[finite]
+    spread = float(np.percentile(values, 90) - np.percentile(values, 10))
+    scale = max(float(np.percentile(values, 90)), 1.0)
+    if spread <= max(0.8, scale * 0.06):
+        return "flat"
+
+    row_span = max(int(rows.max() - rows.min()), 1)
+    column_span = max(int(columns.max() - columns.min()), 1)
+    row_profile = [float(np.median(values[rows == row])) for row in np.unique(rows) if np.any(rows == row)]
+    column_profile = [float(np.median(values[columns == column])) for column in np.unique(columns) if np.any(columns == column)]
+    row_variation = max(row_profile) - min(row_profile) if row_profile else 0.0
+    column_variation = max(column_profile) - min(column_profile) if column_profile else 0.0
+    if max(row_variation, column_variation) > 0 and min(row_variation, column_variation) < max(row_variation, column_variation) * 0.55:
+        return "gabled"
+
+    center_row = (rows.min() + rows.max()) / 2
+    center_column = (columns.min() + columns.max()) / 2
+    normalized_row = (rows - center_row) / (row_span / 2)
+    normalized_column = (columns - center_column) / (column_span / 2)
+    radius = np.sqrt(normalized_row**2 + normalized_column**2)
+    radius_mask = np.isfinite(radius)
+    if radius_mask.any():
+        central = values[radius < 0.38]
+        near_edge = values[(radius >= 0.38) & (radius < 0.85)]
+        edge = values[radius >= 0.85]
+        if central.size and near_edge.size and edge.size:
+            center_drop = float(np.median(central) - np.median(near_edge))
+            outer_drop = float(np.median(near_edge) - np.median(edge))
+            if center_drop >= 0 and outer_drop > 0 and center_drop / outer_drop < 0.9:
+                return "dome"
+        design = np.column_stack((np.ones(radius_mask.sum()), radius[radius_mask], radius[radius_mask] ** 2))
+        radial_values = values[radius_mask]
+        linear_residual = np.mean((radial_values - design[:, :2] @ np.linalg.lstsq(design[:, :2], radial_values, rcond=None)[0]) ** 2)
+        quadratic_residual = np.mean((radial_values - design @ np.linalg.lstsq(design, radial_values, rcond=None)[0]) ** 2)
+        if linear_residual > 0 and quadratic_residual < linear_residual * 0.45:
+            return "dome"
+    return "hipped"
+
+
 def _components(mask: np.ndarray, minimum_area: int) -> list[list[tuple[int, int]]]:
     visited = np.zeros(mask.shape, dtype=bool)
     components: list[list[tuple[int, int]]] = []
@@ -161,11 +209,15 @@ def extract_building_footprints(
         if len(cells) == 1 and roof_height - ground_height < max(0.5, abs(ground_height) * 0.25):
             continue
         relative_height = max(roof_height - ground_height, 0.05)
-        spread = float(np.percentile(finite_component_heights, 90) - np.percentile(finite_component_heights, 10)) if finite_component_heights.size else 0.0
+        component_mask = np.zeros(labels.shape, dtype=bool)
+        for row, column in cells:
+            component_mask[row, column] = True
+        roof_type = infer_roof_type(component_mask, heights)
         min_row = min(row for row, _ in cells)
         max_row = max(row for row, _ in cells)
         min_column = min(column for _, column in cells)
         max_column = max(column for _, column in cells)
+        roof_rise = 0.0 if roof_type == "flat" else max(relative_height * 0.28, 0.05)
         regions.append({
             "centerX": ((min_column + max_column + 1) / 2 / columns) - 0.5,
             "centerZ": ((min_row + max_row + 1) / 2 / rows) - 0.5,
@@ -174,7 +226,9 @@ def extract_building_footprints(
             "height": round(relative_height, 4),
             "groundHeight": round(ground_height, 4),
             "roofHeight": round(roof_height, 4),
-            "roofType": "flat" if spread <= max(0.8, relative_height * 0.08) else "gabled",
+            "roofType": roof_type,
+            "wallHeight": round(relative_height - roof_rise, 4),
+            "roofRise": round(roof_rise, 4),
             "footprint": normalized_loops[0],
             "holes": normalized_loops[1:],
             "area": len(cells),
