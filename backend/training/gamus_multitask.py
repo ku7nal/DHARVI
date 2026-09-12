@@ -17,9 +17,8 @@ from typing import Iterable, Sequence
 
 import numpy as np
 from PIL import Image
+from app.semantic_contract import BUILDING_CLASS, CLASS_COUNT
 
-CLASS_COUNT = 6
-BUILDING_CLASS = 2
 DEFAULT_TILE_SIZE = 518
 IMAGE_MEAN = np.asarray([0.485, 0.456, 0.406], dtype=np.float32)
 IMAGE_STD = np.asarray([0.229, 0.224, 0.225], dtype=np.float32)
@@ -64,7 +63,8 @@ def discover_samples(root: Path) -> list[GamusSample]:
         height_path = _find_match(heights_dir, relative)
         class_path = _find_match(classes_dir, relative)
         if height_path is None or class_path is None:
-            continue
+            missing = "height" if height_path is None else "class"
+            raise FileNotFoundError(f"Missing {missing} raster for image {image_path}.")
         samples.append(GamusSample(image_path, height_path, class_path, _group_for(image_path, images_dir)))
     if not samples:
         raise ValueError(f"No aligned GAMUS triplets were found below {root}.")
@@ -238,18 +238,26 @@ class MultitaskDepthAnythingModel:
         return Module()
 
 
-def load_multitask_model(model_id: str = "depth-anything/Depth-Anything-V2-Small-hf", height_checkpoint: Path | None = None):
+def load_multitask_model(model_id: str = "depth-anything/Depth-Anything-V2-Small-hf", height_checkpoint: Path | None = None, multitask_checkpoint: Path | None = None):
     import torch
     from transformers import AutoModelForDepthEstimation
 
     base = AutoModelForDepthEstimation.from_pretrained(model_id)
     model = MultitaskDepthAnythingModel(base, torch).to_module()
-    if height_checkpoint:
+    if multitask_checkpoint:
+        checkpoint = torch.load(multitask_checkpoint, map_location="cpu", weights_only=False)
+        state = checkpoint["state_dict"] if isinstance(checkpoint, dict) and "state_dict" in checkpoint else checkpoint
+        model.load_state_dict(state, strict=True)
+    elif height_checkpoint:
         checkpoint = torch.load(height_checkpoint, map_location="cpu", weights_only=False)
         state = checkpoint.get("model", checkpoint.get("state_dict", checkpoint)) if isinstance(checkpoint, dict) else checkpoint
         state = {key.removeprefix("module."): value for key, value in state.items()}
         state = {key[len("model."):] if key.startswith("model.model.") else key: value for key, value in state.items()}
         height_state = {key: value for key, value in state.items() if key.startswith("model.")}
+        model_state = model.state_dict()
+        matched = [key for key, value in height_state.items() if key in model_state and model_state[key].shape == value.shape]
+        if not matched:
+            raise ValueError(f"Baseline checkpoint {height_checkpoint} did not match any multitask height weights.")
         model.load_state_dict(height_state, strict=False)
     return model
 
@@ -367,6 +375,18 @@ def _parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
+def class_weights(samples: Sequence[GamusSample]) -> "object":
+    import torch
+
+    counts = np.zeros(CLASS_COUNT, dtype=np.float64)
+    for sample in samples:
+        _, _, labels, valid = load_sample(sample)
+        counts += np.bincount(labels[valid], minlength=CLASS_COUNT)
+    weights = 1.0 / np.sqrt(np.maximum(counts, 1.0))
+    weights /= weights.mean()
+    return torch.from_numpy(weights.astype(np.float32))
+
+
 def main() -> None:
     import torch
     from torch.utils.data import DataLoader
@@ -377,15 +397,24 @@ def main() -> None:
     print(json.dumps({"samples": len(samples), "train": len(train_samples), "validation": len(validation_samples), "groups": sorted({sample.group for sample in samples})}, indent=2))
     if args.baseline_checkpoint and args.output.resolve() == args.baseline_checkpoint.resolve():
         raise ValueError("--output must be different from --baseline-checkpoint so baseline weights are retained.")
-    model = load_multitask_model(height_checkpoint=args.baseline_checkpoint)
+    if args.evaluate:
+        if not args.output.is_file():
+            raise FileNotFoundError("--evaluate expects --output to point to an existing multitask checkpoint.")
+        model = load_multitask_model(multitask_checkpoint=args.output)
+    else:
+        model = load_multitask_model(height_checkpoint=args.baseline_checkpoint)
     device = torch.device("cuda" if torch.cuda.is_available() else "mps" if hasattr(torch.backends, "mps") and torch.backends.mps.is_available() else "cpu")
     model.to(device)
     if args.evaluate:
         metrics = evaluate_samples(model, validation_samples, device)
+        checkpoint = torch.load(args.output, map_location="cpu", weights_only=False)
+        if isinstance(checkpoint, dict) and checkpoint.get("baseline_metrics"):
+            metrics = {**{f"multitask_{key}": value for key, value in metrics.items()}, **{f"baseline_{key}": value for key, value in checkpoint["baseline_metrics"].items()}}
         print(json.dumps(metrics, indent=2))
         return
 
     baseline_metrics = evaluate_height_samples(model, validation_samples, device) if args.baseline_checkpoint else None
+    weights = class_weights(train_samples).to(device)
 
     train_loader = DataLoader(GamusDataset(train_samples, args.image_size, train=True), batch_size=args.batch_size, shuffle=True, num_workers=0)
     optimizer = torch.optim.AdamW(model.parameters(), lr=1e-4, weight_decay=1e-4)
@@ -397,7 +426,7 @@ def main() -> None:
         for batch in train_loader:
             batch = {key: value.to(device) for key, value in batch.items()}
             optimizer.zero_grad(set_to_none=True)
-            losses = multitask_loss(model(batch["image"]), batch)
+            losses = multitask_loss(model(batch["image"]), batch, class_weights=weights)
             losses["total"].backward()
             optimizer.step()
         metrics = evaluate_samples(model, validation_samples, device)

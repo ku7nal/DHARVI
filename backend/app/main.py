@@ -11,6 +11,7 @@ from PIL import Image, ImageDraw, ImageFilter, ImageOps
 from rasterio.io import MemoryFile
 
 from app.model_service import DepthAnythingModelService, ModelUnavailableError
+from app.semantic_contract import SEMANTIC_CLASSES
 
 MEDIA_DIR = Path(__file__).resolve().parent.parent / "media"
 MEDIA_DIR.mkdir(parents=True, exist_ok=True)
@@ -18,14 +19,6 @@ PROJECT_ROOT = Path(__file__).resolve().parents[2]
 CHECKPOINT_PATH = Path(os.getenv("DEPTHWIZARD_CHECKPOINT", PROJECT_ROOT / "astra.pth"))
 model_service = DepthAnythingModelService(CHECKPOINT_PATH)
 SCENE_GRID_SIZE = 256
-SEMANTIC_CLASSES: tuple[dict[str, object], ...] = (
-    {"id": 0, "name": "ground", "label": "Ground", "color": "#b6c99e"},
-    {"id": 1, "name": "low_vegetation", "label": "Low vegetation", "color": "#78a66b"},
-    {"id": 2, "name": "building", "label": "Building", "color": "#c7cbd1"},
-    {"id": 3, "name": "water", "label": "Water", "color": "#72aee8"},
-    {"id": 4, "name": "road", "label": "Road", "color": "#f7f5ef"},
-    {"id": 5, "name": "tree", "label": "Tree", "color": "#3d744d"},
-)
 
 
 app = FastAPI(title="DepthWizard API", version="0.1.0")
