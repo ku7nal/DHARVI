@@ -3,6 +3,7 @@ import type { BenchmarkResult } from "../types";
 const API_BASE = "http://localhost:8000";
 
 function BenchmarkWorkspace({ benchmark }: { benchmark: BenchmarkResult }) {
+  const comparison = benchmark.comparison;
   const previews = [
     ["Input RGB", benchmark.inputImageUrl, "Input aerial image"],
     ["Ground-truth LiDAR nDSM", benchmark.groundTruthUrl, "Ground-truth LiDAR nDSM"],
@@ -25,10 +26,12 @@ function BenchmarkWorkspace({ benchmark }: { benchmark: BenchmarkResult }) {
         <div><span>MAE</span><strong>{benchmark.metrics.mae.toFixed(2)} m</strong><small>Mean absolute error</small></div>
         <div><span>Correlation</span><strong>{benchmark.metrics.correlation.toFixed(2)}</strong><small>Pearson correlation</small></div>
       </div>
-      {benchmark.comparison && <div className="benchmark-comparison" aria-label="Baseline comparison">
-        <div><span>Retained baseline</span><strong>{benchmark.comparison.baseline.buildingBoundaryF1.toFixed(2)}</strong><small>Building-boundary F1</small></div>
-        <div><span>Improved pipeline</span><strong>{benchmark.comparison.improved.buildingBoundaryF1.toFixed(2)}</strong><small>Building-boundary F1</small></div>
-        <div><span>Coverage</span><strong>1024²</strong><small>Full-image target validation</small></div>
+      {comparison && <div className="benchmark-comparison" aria-label="Baseline comparison">
+        {(["rmse", "mae", "correlation", "buildingBoundaryF1"] as const).map((metric) => <div key={metric}>
+          <span>{metric === "buildingBoundaryF1" ? "Building-boundary F1" : metric.toUpperCase()}</span>
+          <strong>{comparison.baseline[metric].toFixed(2)} → {comparison.improved[metric].toFixed(2)}</strong>
+          <small>Retained baseline → improved pipeline</small>
+        </div>)}
       </div>}
       <div className="benchmark-footer"><span>{benchmark.width} × {benchmark.height} reference tile</span><span>Metrics computed over aligned prediction and reference pixels</span></div>
     </section>

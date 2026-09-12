@@ -30,8 +30,8 @@ function validateSceneQuality(heightData: number[], gridSize: number, maxHeight:
   return {
     fullGridCoverage: heightData.length === gridSize * gridSize && gridSize >= 128,
     groundedWalls: regions.every((region) => (region.groundHeight ?? 0) >= 0 && (region.wallHeight ?? region.height) >= 0),
-    sharpRoofs: regions.every((region) => ["flat", "gabled", "hipped", "dome"].includes(region.roofType) && Number.isFinite(region.roofRise ?? 0)),
-    continuousTerrain: Number.isFinite(maxHeight) && maxHeight >= 0,
+    sharpRoofs: regions.every((region) => (region.footprint?.length ?? 0) >= 3 && ["flat", "gabled", "hipped", "dome"].includes(region.roofType) && Number.isFinite(region.roofRise ?? 0) && (region.wallHeight ?? region.height) <= region.height + 0.001),
+    continuousTerrain: Number.isFinite(maxHeight) && maxHeight >= 0 && heightData.every((value) => Number.isFinite(value)),
     estimatedVertices,
     withinBrowserBudget: estimatedVertices <= 220_000,
     detailedBuildings,

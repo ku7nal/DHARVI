@@ -10,7 +10,7 @@ from rasterio.transform import from_origin
 
 from app import main as main_module
 from app.main import app
-from app.model_service import ModelUnavailableError
+from app.model_service import DepthAnythingModelService, ModelUnavailableError
 
 
 class HealthEndpointTests(unittest.TestCase):
@@ -22,6 +22,17 @@ class HealthEndpointTests(unittest.TestCase):
             response.json(),
             {"status": "ok", "service": "depthwizard-api", "version": "0.1.0"},
         )
+
+    def test_1024_tile_starts_cover_both_image_edges_with_overlap(self) -> None:
+        service = DepthAnythingModelService(main_module.CHECKPOINT_PATH)
+        starts = service._tile_starts(1024)
+        covered = np.zeros(1024, dtype=bool)
+        for start in starts:
+            covered[start:min(start + service.input_size, 1024)] = True
+
+        self.assertEqual(starts[0], 0)
+        self.assertEqual(starts[-1], 1024 - service.input_size)
+        self.assertTrue(np.all(covered))
 
 
 class FixturePredictionTests(unittest.TestCase):
