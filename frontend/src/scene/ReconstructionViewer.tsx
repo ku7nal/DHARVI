@@ -3,6 +3,7 @@ import { ContactShadows, OrbitControls, PerspectiveCamera, useTexture } from "@r
 import { Suspense, useMemo, useState } from "react";
 import * as THREE from "three";
 import type { BuildingRegion, SceneLayers } from "../types";
+import { getBuildingLayout } from "../sceneGeometry";
 
 type ReconstructionViewerProps = {
   heightData: number[];
@@ -123,14 +124,15 @@ function StylizedCity({ heightData, gridSize, maxHeight, exaggeration, buildingR
     <TerrainBase />
     {regions.map((region, index) => {
       const height = region.height * verticalScale;
+      const layout = getBuildingLayout(height);
       const width = Math.max(region.width * WORLD_WIDTH, 0.2);
       const depth = Math.max(region.depth * WORLD_DEPTH, 0.2);
       return <group key={`${region.centerX}-${region.centerZ}-${index}`} position={[region.centerX * WORLD_WIDTH, 0, region.centerZ * WORLD_DEPTH]}>
-        <mesh castShadow receiveShadow position={[0, height / 2, 0]}>
+        <mesh castShadow receiveShadow position={[0, layout.wallCenterY, 0]}>
           <boxGeometry args={[width, height, depth]} />
           <meshStandardMaterial color={wireframe ? "#9b94bd" : index % 3 === 0 ? "#c7cbd1" : "#b6beca"} roughness={0.77} wireframe={wireframe} flatShading />
         </mesh>
-        {!wireframe && <mesh geometry={createRoofGeometry(region.roofType, width * 0.94, depth * 0.94, region.roofType === "flat" ? 0.08 : Math.min(height * 0.3, 0.8))} position={[0, height, 0]} castShadow>
+        {!wireframe && <mesh geometry={createRoofGeometry(region.roofType, width * 0.94, depth * 0.94, region.roofType === "flat" ? 0.08 : Math.min(height * 0.3, 0.8))} position={[0, layout.roofBaseY, 0]} castShadow>
           <meshStandardMaterial color={region.roofType === "flat" ? "#d8dbe0" : "#c9ced6"} roughness={0.7} flatShading />
         </mesh>}
       </group>;

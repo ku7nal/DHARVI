@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { BenchmarkWorkspace } from "./components/BenchmarkWorkspace";
 import { PredictionInspector } from "./components/PredictionInspector";
 import { ReconstructionViewer } from "./scene/ReconstructionViewer";
-import type { BenchmarkResult, PredictionResult, SceneLayers } from "./types";
+import { DEFAULT_SCENE_LAYERS, type BenchmarkResult, type PredictionResult, type SceneLayers } from "./types";
 
 type NavItem = "New reconstruction" | "Examples" | "About";
 type PredictionState = "idle" | "processing" | "success" | "error";
@@ -38,7 +38,7 @@ function App() {
   const [predictionState, setPredictionState] = useState<PredictionState>("idle");
   const [prediction, setPrediction] = useState<PredictionResult | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
-  const [layers, setLayers] = useState<SceneLayers>({ city: true, height: false, rgb: false, wireframe: false });
+  const [layers, setLayers] = useState<SceneLayers>(DEFAULT_SCENE_LAYERS);
   const [benchmark, setBenchmark] = useState<BenchmarkResult | null>(null);
   const [benchmarkState, setBenchmarkState] = useState<"idle" | "loading" | "ready" | "error">("idle");
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
@@ -86,7 +86,7 @@ function App() {
       const body = await response.json() as PredictionResult | { detail?: string };
       if (!response.ok) throw new Error("detail" in body ? body.detail : "Prediction could not be created.");
       setPrediction(body as PredictionResult);
-      setLayers({ city: true, height: false, rgb: false, wireframe: false });
+      setLayers(DEFAULT_SCENE_LAYERS);
       setSelectedFile(file ?? null);
       setPredictionState("success");
     } catch (error) {

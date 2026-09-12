@@ -48,6 +48,8 @@ type SceneLayers = {
   wireframe: boolean;
 };
 
+const DEFAULT_SCENE_LAYERS: SceneLayers = { city: true, height: false, rgb: false, wireframe: false };
+
 type BenchmarkResult = {
   id: string;
   name: string;
@@ -63,4 +65,5 @@ type BenchmarkResult = {
   height: number;
 };
 
+export { DEFAULT_SCENE_LAYERS };
 export type { BenchmarkResult, BuildingRegion, GeoSpatialMetadata, PredictionResult, SceneLayers };

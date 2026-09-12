@@ -6,7 +6,8 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test:scene": "node --experimental-strip-types scripts/scene-layout-check.ts"
   },
   "dependencies": {
     "@react-three/drei": "^10.7.6",
