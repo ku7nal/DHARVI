@@ -10,6 +10,7 @@ from fastapi.staticfiles import StaticFiles
 from PIL import Image, ImageDraw, ImageFilter, ImageOps
 from rasterio.io import MemoryFile
 
+from app.building_footprints import extract_building_footprints
 from app.model_service import DepthAnythingModelService, ModelUnavailableError
 from app.semantic_contract import SEMANTIC_CLASSES
 
@@ -151,56 +152,37 @@ def _write_model_prediction_assets(
     )
 
 
-def _building_regions(height_data: list[float], grid_size: int, max_height: float) -> list[dict[str, object]]:
-    """Extract conservative, small-building-friendly regions from the estimated nDSM.
-
-    This is deliberately a fallback until a GAMUS semantic head is trained. The
-    renderer receives explicit footprints instead of repeating the old browser-side
-    threshold/blob logic, and the response labels the source as height-derived.
-    """
+def _building_regions(
+    height_data: list[float],
+    grid_size: int,
+    max_height: float,
+    semantic_data: list[int] | None = None,
+    semantic_grid_size: int | None = None,
+) -> list[dict[str, object]]:
+    """Extract polygon footprints from aligned semantics, with an nDSM fallback."""
     values = np.asarray(height_data, dtype=np.float32).reshape((grid_size, grid_size))
-    non_zero = values[values > max(float(values.min()), 1e-3)]
-    if non_zero.size == 0:
-        return []
-    threshold = max(float(np.percentile(non_zero, 72)), max_height * 0.2, 0.75)
-    mask = values >= threshold
-    visited = np.zeros(mask.shape, dtype=bool)
-    regions: list[dict[str, object]] = []
-    for row in range(grid_size):
-        for column in range(grid_size):
-            if not mask[row, column] or visited[row, column]:
-                continue
-            stack = [(row, column)]
-            visited[row, column] = True
-            cells: list[tuple[int, int]] = []
-            while stack:
-                current_row, current_column = stack.pop()
-                cells.append((current_row, current_column))
-                for row_delta, column_delta in ((-1, 0), (1, 0), (0, -1), (0, 1)):
-                    next_row = current_row + row_delta
-                    next_column = current_column + column_delta
-                    if 0 <= next_row < grid_size and 0 <= next_column < grid_size and mask[next_row, next_column] and not visited[next_row, next_column]:
-                        visited[next_row, next_column] = True
-                        stack.append((next_row, next_column))
-            # Preserve small structures; only isolated single-pixel noise is removed.
-            if len(cells) < 2:
-                continue
-            rows = [cell[0] for cell in cells]
-            columns = [cell[1] for cell in cells]
-            min_row, max_row = min(rows), max(rows)
-            min_column, max_column = min(columns), max(columns)
-            region_heights = np.asarray([values[row, column] for row, column in cells])
-            spread = float(np.percentile(region_heights, 90) - np.percentile(region_heights, 10))
-            roof_type = "flat" if spread <= max(0.8, max_height * 0.06) else "gabled"
-            regions.append({
-                "centerX": ((min_column + max_column) / 2 / max(grid_size - 1, 1) - 0.5),
-                "centerZ": ((min_row + max_row) / 2 / max(grid_size - 1, 1) - 0.5),
-                "width": (max_column - min_column + 1) / grid_size,
-                "depth": (max_row - min_row + 1) / grid_size,
-                "height": float(np.percentile(region_heights, 70)),
-                "roofType": roof_type,
-                "source": "height_threshold_fallback",
-            })
+    source = "semantic_head" if semantic_data and semantic_grid_size else "height_threshold_fallback"
+    if semantic_data and semantic_grid_size:
+        labels = np.asarray(semantic_data, dtype=np.uint8).reshape((semantic_grid_size, semantic_grid_size))
+        if semantic_grid_size != grid_size:
+            labels = np.asarray(
+                Image.fromarray(labels, mode="L").resize((grid_size, grid_size), Image.Resampling.NEAREST),
+                dtype=np.uint8,
+            )
+    else:
+        non_zero = values[values > max(float(values.min()), 1e-3)]
+        if non_zero.size == 0:
+            return []
+        threshold = max(float(np.percentile(non_zero, 72)), max_height * 0.2, 0.75)
+        labels = np.zeros(values.shape, dtype=np.uint8)
+        labels[values >= threshold] = 2
+
+    regions = extract_building_footprints(labels, values)
+    for region in regions:
+        region["source"] = source
+        region.pop("area", None)
+        region.pop("minRow", None)
+        region.pop("maxColumn", None)
     return regions
 
 
@@ -382,7 +364,13 @@ async def predict(
     prediction_width = int(height_map.shape[1]) if not is_fixture else 128
     prediction_height = int(height_map.shape[0]) if not is_fixture else 128
     scene_grid_size = int(np.sqrt(len(height_data)))
-    building_regions = _building_regions(height_data, scene_grid_size, max_height)
+    building_regions = _building_regions(
+        height_data,
+        scene_grid_size,
+        max_height,
+        semantic_data,
+        semantic_grid_size,
+    )
     return {
         "id": prediction_id,
         "status": "complete",
@@ -400,7 +388,7 @@ async def predict(
         "semanticMapUrl": semantic_map_url,
         "semanticSource": semantic_source,
         "buildingRegions": building_regions,
-        "buildingRegionSource": "height_threshold_fallback",
+        "buildingRegionSource": "semantic_head" if semantic_source in {"fixture", "trained"} else "height_threshold_fallback",
         "minHeight": min_height,
         "maxHeight": max_height,
         "resultType": "estimated_ndsm",

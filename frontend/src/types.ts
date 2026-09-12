@@ -34,6 +34,10 @@ type BuildingRegion = {
   height: number;
   roofType: "flat" | "gabled" | "hipped" | "dome";
   source: string;
+  footprint?: Array<[number, number]>;
+  holes?: Array<Array<[number, number]>>;
+  groundHeight?: number;
+  roofHeight?: number;
 };
 
 type SemanticClass = {

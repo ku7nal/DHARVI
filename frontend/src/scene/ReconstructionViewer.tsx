@@ -112,6 +112,23 @@ function createRoofGeometry(roofType: BuildingRegion["roofType"], width: number,
   return geometry;
 }
 
+function createFootprintGeometry(region: BuildingRegion, verticalScale: number) {
+  if (!region.footprint || region.footprint.length < 3) return null;
+  const shape = new THREE.Shape(region.footprint.map(([x, z]) => new THREE.Vector2(x * WORLD_WIDTH, -z * WORLD_DEPTH)));
+  for (const hole of region.holes ?? []) {
+    if (hole.length >= 3) {
+      shape.holes.push(new THREE.Path(hole.map(([x, z]) => new THREE.Vector2(x * WORLD_WIDTH, -z * WORLD_DEPTH))));
+    }
+  }
+  const geometry = new THREE.ExtrudeGeometry(shape, {
+    bevelEnabled: false,
+    curveSegments: 1,
+    depth: Math.max(region.height * verticalScale, 0.05),
+  });
+  geometry.rotateX(-Math.PI / 2);
+  return geometry;
+}
+
 function TerrainBase() {
   return <mesh rotation={[-Math.PI / 2, 0, 0]} receiveShadow position={[0, 0, 0]}><planeGeometry args={[WORLD_WIDTH, WORLD_DEPTH]} /><meshStandardMaterial color="#b6c99e" roughness={1} /></mesh>;
 }
@@ -127,6 +144,12 @@ function StylizedCity({ heightData, gridSize, maxHeight, exaggeration, buildingR
       const layout = getBuildingLayout(height);
       const width = Math.max(region.width * WORLD_WIDTH, 0.2);
       const depth = Math.max(region.depth * WORLD_DEPTH, 0.2);
+      const footprintGeometry = createFootprintGeometry(region, verticalScale);
+      if (footprintGeometry) {
+        return <mesh key={`${region.centerX}-${region.centerZ}-${index}`} geometry={footprintGeometry} castShadow receiveShadow position={[0, (region.groundHeight ?? 0) * verticalScale, 0]}>
+          <meshStandardMaterial color={wireframe ? "#9b94bd" : index % 3 === 0 ? "#c7cbd1" : "#b6beca"} roughness={0.77} wireframe={wireframe} flatShading />
+        </mesh>;
+      }
       return <group key={`${region.centerX}-${region.centerZ}-${index}`} position={[region.centerX * WORLD_WIDTH, 0, region.centerZ * WORLD_DEPTH]}>
         <mesh castShadow receiveShadow position={[0, layout.wallCenterY, 0]}>
           <boxGeometry args={[width, height, depth]} />
