@@ -108,7 +108,7 @@ def _normalized_loop(loop: Iterable[tuple[int, int]], rows: int, columns: int, t
     return [[round(value, 6) for value in point] for point in _simplify(points, grid_tolerance)]
 
 
-def _surrounding_values(component: set[tuple[int, int]], heights: np.ndarray) -> np.ndarray:
+def _surrounding_values(component: set[tuple[int, int]], heights: np.ndarray, labels: np.ndarray | None = None) -> np.ndarray:
     candidates: list[float] = []
     rows, columns = heights.shape
     for row, column in component:
@@ -118,6 +118,8 @@ def _surrounding_values(component: set[tuple[int, int]], heights: np.ndarray) ->
                 if candidate in component:
                     continue
                 if 0 <= candidate[0] < rows and 0 <= candidate[1] < columns:
+                    if labels is not None and int(labels[candidate]) != 0:
+                        continue
                     value = float(heights[candidate])
                     if np.isfinite(value):
                         candidates.append(value)
@@ -128,7 +130,7 @@ def extract_building_footprints(
     semantic_labels: np.ndarray,
     height_map: np.ndarray,
     *,
-    minimum_area: int = 2,
+    minimum_area: int = 1,
     simplify_tolerance: float = 0.75,
 ) -> list[dict[str, object]]:
     """Return clean polygon regions in the viewer's normalized scene coordinates."""
@@ -144,12 +146,20 @@ def extract_building_footprints(
         if not loops:
             continue
         normalized_loops = [_normalized_loop(loop, rows, columns, simplify_tolerance) for loop in loops]
-        normalized_loops.sort(key=len, reverse=True)
-        ground_values = _surrounding_values(component, heights)
+
+        def loop_area(loop: list[list[float]]) -> float:
+            return abs(sum(loop[index][0] * loop[(index + 1) % len(loop)][1] - loop[(index + 1) % len(loop)][0] * loop[index][1] for index in range(len(loop))) / 2)
+
+        normalized_loops.sort(key=loop_area, reverse=True)
+        ground_values = _surrounding_values(component, heights, labels)
+        if not ground_values.size:
+            ground_values = _surrounding_values(component, heights)
         finite_component_heights = np.asarray([heights[row, column] for row, column in cells], dtype=np.float32)
         finite_component_heights = finite_component_heights[np.isfinite(finite_component_heights)]
         ground_height = float(np.percentile(ground_values, 50)) if ground_values.size else 0.0
         roof_height = float(np.percentile(finite_component_heights, 90)) if finite_component_heights.size else ground_height
+        if len(cells) == 1 and roof_height - ground_height < max(0.5, abs(ground_height) * 0.25):
+            continue
         relative_height = max(roof_height - ground_height, 0.05)
         spread = float(np.percentile(finite_component_heights, 90) - np.percentile(finite_component_heights, 10)) if finite_component_heights.size else 0.0
         min_row = min(row for row, _ in cells)

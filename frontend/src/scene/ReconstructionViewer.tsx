@@ -83,6 +83,13 @@ function extractBuildingRegions(heightData: number[], gridSize: number, maxHeigh
         height: Math.max(averageHeight, maxHeight * 0.18),
         roofType: "flat",
         source: "browser_fallback",
+        footprint: [
+          [minColumn / gridSize - 0.5, minRow / gridSize - 0.5],
+          [(maxColumn + 1) / gridSize - 0.5, minRow / gridSize - 0.5],
+          [(maxColumn + 1) / gridSize - 0.5, (maxRow + 1) / gridSize - 0.5],
+          [minColumn / gridSize - 0.5, (maxRow + 1) / gridSize - 0.5],
+        ],
+        holes: [],
       });
     }
   }

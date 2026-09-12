@@ -46,6 +46,17 @@ class BuildingFootprintTests(unittest.TestCase):
         self.assertAlmostEqual(region["height"], 15.0)
         self.assertEqual(region["roofType"], "flat")
 
+    def test_one_cell_building_is_kept_when_it_is_above_ground(self) -> None:
+        labels = np.zeros((5, 5), dtype=np.uint8)
+        labels[2, 2] = 2
+        heights = np.zeros((5, 5), dtype=np.float32)
+        heights[2, 2] = 8
+
+        regions = extract_building_footprints(labels, heights)
+
+        self.assertEqual(len(regions), 1)
+        self.assertEqual(regions[0]["area"], 1)
+
     def test_jagged_outline_is_simplified_without_changing_extent(self) -> None:
         labels = np.zeros((14, 14), dtype=np.uint8)
         labels[3:11, 3:11] = 2
