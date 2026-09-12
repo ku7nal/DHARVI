@@ -85,6 +85,10 @@ type BenchmarkResult = {
   predictionUrl: string;
   errorMapUrl: string;
   metrics: { rmse: number; mae: number; correlation: number };
+  comparison?: {
+    baseline: { rmse: number; mae: number; correlation: number; buildingBoundaryF1: number };
+    improved: { rmse: number; mae: number; correlation: number; buildingBoundaryF1: number };
+  };
   width: number;
   height: number;
 };

@@ -60,6 +60,21 @@ class FixturePredictionTests(unittest.TestCase):
         self.assertEqual(self.client.get(result["inputImageUrl"]).status_code, 200)
         self.assertEqual(self.client.get(result["heightMapUrl"]).status_code, 200)
 
+    def test_1024_input_preserves_full_image_dimensions_and_scene_grid(self) -> None:
+        image_bytes = BytesIO()
+        Image.new("RGB", (1024, 1024), "#8899aa").save(image_bytes, format="PNG")
+
+        response = self.client.post(
+            "/api/predict",
+            files={"file": ("full-scene.png", image_bytes.getvalue(), "image/png")},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        result = response.json()
+        self.assertEqual((result["width"], result["height"]), (1024, 1024))
+        self.assertEqual((result["predictionWidth"], result["predictionHeight"]), (518, 518))
+        self.assertEqual(len(result["heightData"]), 256 * 256)
+
     def test_gamus_example_returns_a_fixture_prediction(self) -> None:
         response = self.client.post(
             "/api/predict",
@@ -201,6 +216,8 @@ class BenchmarkTests(unittest.TestCase):
         for asset_key in ("inputImageUrl", "groundTruthUrl", "predictionUrl", "errorMapUrl"):
             self.assertEqual(self.client.get(benchmark[asset_key]).status_code, 200)
         self.assertEqual(set(benchmark["metrics"]), {"rmse", "mae", "correlation"})
+        self.assertEqual(set(benchmark["comparison"]), {"baseline", "improved"})
+        self.assertEqual(set(benchmark["comparison"]["improved"]), {"rmse", "mae", "correlation", "buildingBoundaryF1"})
 
     def test_metrics_are_zero_for_identical_arrays_and_safe_for_flat_arrays(self) -> None:
         from app.main import compute_metrics

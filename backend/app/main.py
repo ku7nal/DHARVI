@@ -201,6 +201,28 @@ def compute_metrics(predicted: np.ndarray, ground_truth: np.ndarray) -> dict[str
     }
 
 
+def compute_building_boundary_f1(predicted: np.ndarray, ground_truth: np.ndarray) -> float:
+    """Compare height-derived building boundaries without implying absolute DSM truth."""
+    threshold = max(float(np.percentile(ground_truth, 72)), 0.75)
+
+    def boundary(values: np.ndarray) -> np.ndarray:
+        mask = values >= threshold
+        padded = np.pad(mask, 1, constant_values=False)
+        return mask & (
+            (padded[:-2, 1:-1] != mask)
+            | (padded[2:, 1:-1] != mask)
+            | (padded[1:-1, :-2] != mask)
+            | (padded[1:-1, 2:] != mask)
+        )
+
+    predicted_boundary = boundary(predicted)
+    ground_truth_boundary = boundary(ground_truth)
+    true_positive = float(np.sum(predicted_boundary & ground_truth_boundary))
+    precision = true_positive / float(np.sum(predicted_boundary)) if np.any(predicted_boundary) else 0.0
+    recall = true_positive / float(np.sum(ground_truth_boundary)) if np.any(ground_truth_boundary) else 0.0
+    return 2 * precision * recall / (precision + recall) if precision + recall else 0.0
+
+
 def _write_benchmark_assets() -> dict[str, object]:
     benchmark_id = "gamus-urban-demo"
     image = _fixture_city()
@@ -214,6 +236,7 @@ def _write_benchmark_assets() -> dict[str, object]:
     ground_truth = np.asarray(grayscale, dtype=np.float32) / 255 * 42.7
     smoothed = np.asarray(grayscale.filter(ImageFilter.GaussianBlur(radius=2.2)), dtype=np.float32) / 255 * 42.7
     predicted = np.clip(smoothed * 0.92 + 0.65, 0, 42.7)
+    baseline = np.asarray(grayscale, dtype=np.float32) / 255 * 42.7
     error = np.abs(predicted - ground_truth)
 
     def save_map(values: np.ndarray, path: Path, scale: float) -> None:
@@ -224,6 +247,7 @@ def _write_benchmark_assets() -> dict[str, object]:
     save_map(predicted, prediction_path, 42.7)
     save_map(error, error_path, max(float(error.max()), 1.0))
     metrics = compute_metrics(predicted, ground_truth)
+    baseline_metrics = compute_metrics(baseline, ground_truth)
     return {
         "id": benchmark_id,
         "name": "GAMUS urban validation example",
@@ -235,6 +259,10 @@ def _write_benchmark_assets() -> dict[str, object]:
         "predictionUrl": f"/media/{prediction_path.name}",
         "errorMapUrl": f"/media/{error_path.name}",
         "metrics": {key: round(value, 4) for key, value in metrics.items()},
+        "comparison": {
+            "baseline": {**{key: round(value, 4) for key, value in baseline_metrics.items()}, "buildingBoundaryF1": round(compute_building_boundary_f1(baseline, ground_truth), 4)},
+            "improved": {**{key: round(value, 4) for key, value in metrics.items()}, "buildingBoundaryF1": round(compute_building_boundary_f1(predicted, ground_truth), 4)},
+        },
         "width": image.width,
         "height": image.height,
     }

@@ -5,6 +5,7 @@ import * as THREE from "three";
 import type { BuildingRegion, SceneLayers } from "../types";
 import { createRoofGeometry } from "../roofGeometry";
 import { getBuildingLayout } from "../sceneGeometry";
+import { getBuildingDetailLevel, validateSceneQuality } from "../sceneQuality";
 import { GROUND, LOW_VEGETATION, ROAD, TREE, WATER, createSemanticSurfaceGeometry, prepareSemanticTerrain } from "../semanticTerrain";
 
 type ReconstructionViewerProps = {
@@ -144,6 +145,18 @@ function TerrainBase() {
   return <mesh rotation={[-Math.PI / 2, 0, 0]} receiveShadow position={[0, 0, 0]}><planeGeometry args={[WORLD_WIDTH, WORLD_DEPTH]} /><meshStandardMaterial color="#b6c99e" roughness={1} /></mesh>;
 }
 
+function distantBuildingRegion(region: BuildingRegion): BuildingRegion {
+  const halfWidth = region.width / 2;
+  const halfDepth = region.depth / 2;
+  return {
+    ...region,
+    roofType: "flat",
+    roofRise: 0,
+    footprint: [[region.centerX - halfWidth, region.centerZ - halfDepth], [region.centerX + halfWidth, region.centerZ - halfDepth], [region.centerX + halfWidth, region.centerZ + halfDepth], [region.centerX - halfWidth, region.centerZ + halfDepth]],
+    holes: [],
+  };
+}
+
 function SemanticTerrain({ terrain, maxHeight, exaggeration, layers, wireframe }: { terrain: ReturnType<typeof prepareSemanticTerrain>; maxHeight: number; exaggeration: number; layers: SceneLayers; wireframe: boolean }) {
   const layerDefinitions = [[GROUND, layers.ground, "#b6c99e"], [ROAD, layers.roads, "#e8e1d6"], [WATER, layers.water, "#72aee8"], [LOW_VEGETATION, layers.vegetation, "#83a96f"]] as const;
   return <group>{layerDefinitions.map(([classId, enabled, color]) => enabled && <mesh key={classId} geometry={createSemanticSurfaceGeometry(terrain.heights, terrain.classes, terrain.gridSize, classId, maxHeight, exaggeration)} receiveShadow>
@@ -172,11 +185,13 @@ function TreeLayer({ terrain, maxHeight, exaggeration, enabled }: { terrain: Ret
 function StylizedCity({ heightData, gridSize, maxHeight, exaggeration, buildingRegions, wireframe, inputImageUrl, rgbRoof, semanticData, semanticGridSize, layers }: Omit<ReconstructionViewerProps, "layers"> & { exaggeration: number; wireframe: boolean; rgbRoof: boolean; layers: SceneLayers }) {
   const regions = useMemo(() => buildingRegions?.length ? buildingRegions : extractBuildingRegions(heightData, gridSize, maxHeight), [buildingRegions, gridSize, heightData, maxHeight]);
   const terrain = useMemo(() => prepareSemanticTerrain(heightData, gridSize, maxHeight, semanticData, semanticGridSize), [heightData, gridSize, maxHeight, semanticData, semanticGridSize]);
+  const quality = useMemo(() => validateSceneQuality(heightData, gridSize, maxHeight, regions), [heightData, gridSize, maxHeight, regions]);
   const verticalScale = 3.6 / Math.max(maxHeight, 1) * exaggeration;
 
-  return <group>
+  return <group userData={{ sceneQuality: quality }}>
     {semanticData?.length ? <SemanticTerrain terrain={terrain} maxHeight={maxHeight} exaggeration={exaggeration} layers={layers} wireframe={wireframe} /> : <TerrainBase />}
-    {layers.buildings && regions.map((region, index) => {
+    {layers.buildings && regions.map((sourceRegion, index) => {
+      const region = getBuildingDetailLevel(sourceRegion) === "distant" ? distantBuildingRegion(sourceRegion) : sourceRegion;
       const height = region.height * verticalScale;
       const layout = getBuildingLayout(height);
       const width = Math.max(region.width * WORLD_WIDTH, 0.2);
@@ -262,6 +277,7 @@ function ReconstructionViewer({ heightData, gridSize, maxHeight, layers, inputIm
           <span>Height {exaggeration.toFixed(1)}×</span>
           <input aria-label="Height exaggeration" type="range" min="1" max="3" step="0.1" value={exaggeration} onChange={(event) => setExaggeration(Number(event.target.value))} />
         </label>
+        <span className="scene-quality-label">256² terrain · adaptive LoD2</span>
       </div>
     </div>
   );

@@ -112,6 +112,7 @@ h1 { margin-bottom: 0; font-family: "Inter Tight", sans-serif; font-size: clamp(
 .scene-toolbar { position: absolute; right: 18px; bottom: 18px; left: 18px; display: flex; align-items: center; gap: 6px; padding: 7px; border: 1px solid rgba(255,255,255,.88); border-radius: 12px; background: rgba(255,255,255,.82); box-shadow: 0 8px 25px rgba(70, 61, 111, .1); backdrop-filter: blur(12px); }
 .scene-toolbar button { padding: 8px 11px; border: 0; border-radius: 8px; color: #858291; background: transparent; cursor: pointer; font-size: 11px; }
 .scene-toolbar button:hover, .scene-toolbar button.selected { color: #5a43c8; background: #f0edff; }
+.scene-quality-label { margin-left: auto; padding: 8px 10px; color: #9691a4; font-size: 9px; white-space: nowrap; }
 .exaggeration-control { display: flex; align-items: center; gap: 9px; margin-left: auto; padding: 0 8px; color: #858291; font-size: 10px; white-space: nowrap; }
 .exaggeration-control input { width: 100px; accent-color: #7356da; }
 .result-footer { display: flex; align-items: center; gap: 18px; padding: 13px 22px; color: #9996a5; font-size: 10px; }
@@ -162,6 +163,10 @@ h1 { margin-bottom: 0; font-family: "Inter Tight", sans-serif; font-size: clamp(
 .benchmark-metrics > div { padding: 13px 14px; border: 1px solid #ebe9f2; border-radius: 10px; background: #fbfaff; }
 .benchmark-metrics span, .benchmark-metrics small { display: block; color: #a29fab; font-size: 9px; }
 .benchmark-metrics strong { display: block; margin: 5px 0 3px; color: #5d586e; font-family: "Inter Tight", sans-serif; font-size: 22px; letter-spacing: -.6px; }
+.benchmark-comparison { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; padding: 0 24px 19px; }
+.benchmark-comparison > div { padding: 11px 14px; border: 1px solid #ebe9f2; border-radius: 10px; background: #f7f5ff; }
+.benchmark-comparison span, .benchmark-comparison small { display: block; color: #918ba2; font-size: 9px; }
+.benchmark-comparison strong { display: block; margin: 4px 0 2px; color: #5d586e; font-family: "Inter Tight", sans-serif; font-size: 18px; }
 .benchmark-footer { display: flex; justify-content: space-between; gap: 12px; margin-top: auto; padding: 13px 24px; border-top: 1px solid #f0eff4; color: #aaa7b2; font-size: 9px; }
 .inspector-previews { display: grid; grid-template-columns: 1fr; gap: 9px; }
 .inspector-previews figure { overflow: hidden; margin: 0; border: 1px solid #ebe9f1; border-radius: 7px; background: #fff; }
@@ -209,5 +214,6 @@ h1 { margin-bottom: 0; font-family: "Inter Tight", sans-serif; font-size: clamp(
   .benchmark-previews { grid-template-columns: 1fr 1fr; padding: 15px; }
   .benchmark-previews img { height: 110px; }
   .benchmark-metrics { padding: 0 15px 15px; }
+  .benchmark-comparison { grid-template-columns: 1fr; padding: 0 15px 15px; }
   .benchmark-footer { align-items: start; flex-direction: column; padding: 12px 15px; }
 }
