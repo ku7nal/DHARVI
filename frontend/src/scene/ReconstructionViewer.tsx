@@ -1,5 +1,5 @@
 import { Canvas } from "@react-three/fiber";
-import { OrbitControls, PerspectiveCamera, useTexture } from "@react-three/drei";
+import { ContactShadows, OrbitControls, PerspectiveCamera, useTexture } from "@react-three/drei";
 import { Suspense, useMemo, useState } from "react";
 import * as THREE from "three";
 import type { BuildingRegion, SceneLayers } from "../types";
@@ -126,12 +126,12 @@ function StylizedCity({ heightData, gridSize, maxHeight, exaggeration, buildingR
       const width = Math.max(region.width * WORLD_WIDTH, 0.2);
       const depth = Math.max(region.depth * WORLD_DEPTH, 0.2);
       return <group key={`${region.centerX}-${region.centerZ}-${index}`} position={[region.centerX * WORLD_WIDTH, 0, region.centerZ * WORLD_DEPTH]}>
-        <mesh castShadow receiveShadow>
+        <mesh castShadow receiveShadow position={[0, height / 2, 0]}>
           <boxGeometry args={[width, height, depth]} />
-          <meshStandardMaterial color={wireframe ? "#9b94bd" : index % 3 === 0 ? "#c7cbd1" : "#b6beca"} roughness={0.77} wireframe={wireframe} />
+          <meshStandardMaterial color={wireframe ? "#9b94bd" : index % 3 === 0 ? "#c7cbd1" : "#b6beca"} roughness={0.77} wireframe={wireframe} flatShading />
         </mesh>
         {!wireframe && <mesh geometry={createRoofGeometry(region.roofType, width * 0.94, depth * 0.94, region.roofType === "flat" ? 0.08 : Math.min(height * 0.3, 0.8))} position={[0, height, 0]} castShadow>
-          <meshStandardMaterial color={region.roofType === "flat" ? "#d8dbe0" : "#c9ced6"} roughness={0.7} />
+          <meshStandardMaterial color={region.roofType === "flat" ? "#d8dbe0" : "#c9ced6"} roughness={0.7} flatShading />
         </mesh>}
       </group>;
     })}
@@ -159,10 +159,11 @@ function SceneContents({ heightData, gridSize, maxHeight, exaggeration, cameraMo
   return (
     <>
       <color attach="background" args={["#f0eff7"]} />
-      <ambientLight intensity={1.6} />
-      <directionalLight castShadow intensity={2.2} position={[7, 13, 8]} shadow-mapSize={[2048, 2048]} />
-      <directionalLight intensity={0.55} position={[-8, 5, -4]} color="#d7d1ff" />
+      <ambientLight intensity={1.15} />
+      <directionalLight castShadow intensity={2.6} position={[7, 13, 8]} shadow-mapSize={[2048, 2048]} shadow-bias={-0.0002} />
+      <directionalLight intensity={0.38} position={[-8, 5, -4]} color="#d7d1ff" />
       {layers.city && <StylizedCity heightData={heightData} gridSize={gridSize} maxHeight={maxHeight} exaggeration={exaggeration} buildingRegions={buildingRegions} wireframe={layers.wireframe} />}
+      {layers.city && <ContactShadows position={[0, 0.015, 0]} opacity={0.32} scale={20} blur={1.4} far={5} resolution={512} color="#555064" />}
       <HeightSurface heightData={heightData} gridSize={gridSize} maxHeight={maxHeight} exaggeration={exaggeration} layers={layers} inputImageUrl={inputImageUrl} />
       {layers.rgb && <Suspense fallback={null}><RgbSurface heightData={heightData} gridSize={gridSize} maxHeight={maxHeight} exaggeration={exaggeration} layers={layers} inputImageUrl={inputImageUrl} /></Suspense>}
       <gridHelper args={[22, 22, "#d5d1e4", "#e5e3ed"]} position={[0, -0.04, 0]} />
