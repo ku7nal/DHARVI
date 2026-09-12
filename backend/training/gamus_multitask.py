@@ -37,6 +37,8 @@ def _find_match(directory: Path, relative: Path) -> Path | None:
     if exact.is_file():
         return exact
     candidates = sorted(directory.rglob(f"{relative.stem}.*"))
+    if len(candidates) > 1:
+        raise ValueError(f"Ambiguous {relative.stem} match under {directory}: {candidates}")
     return candidates[0] if candidates else None
 
 
@@ -46,7 +48,7 @@ def _group_for(path: Path, images_dir: Path) -> str:
         return relative.parts[0]
     # A city/tile prefix is safer than random pixel-level splitting when the
     # downloaded dataset is flattened.
-    return relative.stem.split("_")[0].split("-")[0]
+    return ""
 
 
 def discover_samples(root: Path) -> list[GamusSample]:
@@ -74,6 +76,8 @@ def discover_samples(root: Path) -> list[GamusSample]:
 def split_by_group(samples: Sequence[GamusSample], validation_groups: Sequence[str] | None = None) -> tuple[list[GamusSample], list[GamusSample]]:
     """Split by geographic group, never by individual pixels or random tiles."""
     groups = sorted({sample.group for sample in samples})
+    if "" in groups:
+        raise ValueError("Geographic groups must be represented by directories under images/; flattened tiles cannot be split safely.")
     if len(groups) < 2 and not validation_groups:
         raise ValueError("At least two geographic groups are required for a separated validation split.")
     selected = set(validation_groups or groups[-max(1, len(groups) // 5):])
@@ -256,8 +260,10 @@ def load_multitask_model(model_id: str = "depth-anything/Depth-Anything-V2-Small
         height_state = {key: value for key, value in state.items() if key.startswith("model.")}
         model_state = model.state_dict()
         matched = [key for key, value in height_state.items() if key in model_state and model_state[key].shape == value.shape]
-        if not matched:
-            raise ValueError(f"Baseline checkpoint {height_checkpoint} did not match any multitask height weights.")
+        expected_height_keys = {key for key in model_state if key.startswith("model.")}
+        missing_height_keys = expected_height_keys.difference(matched)
+        if missing_height_keys:
+            raise ValueError(f"Baseline checkpoint {height_checkpoint} is missing {len(missing_height_keys)} height weights.")
         model.load_state_dict(height_state, strict=False)
     return model
 
@@ -345,7 +351,9 @@ def reconstruction_metrics(predicted_height: np.ndarray, target_height: np.ndarr
     building_f1 = float(2 * true_positive / max(2 * true_positive + np.sum(predicted_building & valid) - true_positive + np.sum(target_building & valid) - true_positive, 1))
 
     def boundary(mask: np.ndarray) -> np.ndarray:
-        return mask & (~np.roll(mask, 1, 0) | ~np.roll(mask, -1, 0) | ~np.roll(mask, 1, 1) | ~np.roll(mask, -1, 1))
+        padded = np.pad(mask, 1, mode="constant", constant_values=False)
+        neighbours = padded[:-2, 1:-1] & padded[2:, 1:-1] & padded[1:-1, :-2] & padded[1:-1, 2:]
+        return mask & ~neighbours
 
     predicted_boundary = boundary(predicted_building)
     target_boundary = boundary(target_building)
