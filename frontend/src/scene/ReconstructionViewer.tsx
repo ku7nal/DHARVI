@@ -113,7 +113,7 @@ function createRoofGeometry(roofType: BuildingRegion["roofType"], width: number,
 }
 
 function TerrainBase() {
-  return <mesh rotation={[-Math.PI / 2, 0, 0]} receiveShadow position={[0, -0.03, 0]}><planeGeometry args={[WORLD_WIDTH, WORLD_DEPTH]} /><meshStandardMaterial color="#b6c99e" roughness={1} /></mesh>;
+  return <mesh rotation={[-Math.PI / 2, 0, 0]} receiveShadow position={[0, 0, 0]}><planeGeometry args={[WORLD_WIDTH, WORLD_DEPTH]} /><meshStandardMaterial color="#b6c99e" roughness={1} /></mesh>;
 }
 
 function StylizedCity({ heightData, gridSize, maxHeight, exaggeration, buildingRegions, wireframe }: Omit<ReconstructionViewerProps, "layers" | "inputImageUrl"> & { exaggeration: number; wireframe: boolean }) {
@@ -165,7 +165,7 @@ function SceneContents({ heightData, gridSize, maxHeight, exaggeration, cameraMo
       <directionalLight castShadow intensity={2.6} position={[7, 13, 8]} shadow-mapSize={[2048, 2048]} shadow-bias={-0.0002} />
       <directionalLight intensity={0.38} position={[-8, 5, -4]} color="#d7d1ff" />
       {layers.city && <StylizedCity heightData={heightData} gridSize={gridSize} maxHeight={maxHeight} exaggeration={exaggeration} buildingRegions={buildingRegions} wireframe={layers.wireframe} />}
-      {layers.city && <ContactShadows position={[0, 0.015, 0]} opacity={0.32} scale={20} blur={1.4} far={5} resolution={512} color="#555064" />}
+      {layers.city && <ContactShadows position={[0, 0.01, 0]} opacity={0.32} scale={20} blur={1.4} far={5} resolution={512} color="#555064" />}
       <HeightSurface heightData={heightData} gridSize={gridSize} maxHeight={maxHeight} exaggeration={exaggeration} layers={layers} inputImageUrl={inputImageUrl} />
       {layers.rgb && <Suspense fallback={null}><RgbSurface heightData={heightData} gridSize={gridSize} maxHeight={maxHeight} exaggeration={exaggeration} layers={layers} inputImageUrl={inputImageUrl} /></Suspense>}
       <gridHelper args={[22, 22, "#d5d1e4", "#e5e3ed"]} position={[0, -0.04, 0]} />
