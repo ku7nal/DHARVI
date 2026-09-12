@@ -33,6 +33,13 @@ function LayerToggle({ label, description, active, onClick }: { label: string; d
 }
 
 function PredictionInspector({ prediction, layers, onToggleLayer }: PredictionInspectorProps) {
+  const semanticAvailable = Boolean(prediction.semanticData?.length && prediction.semanticMapUrl && prediction.semanticClasses?.length);
+  const semanticSourceLabel = prediction.semanticSource === "fixture"
+    ? "Fixture semantic labels"
+    : prediction.semanticSource === "trained"
+      ? "Trained GAMUS semantic head"
+      : "Semantic head unavailable";
+
   return (
     <aside className="prediction-inspector" aria-label="Prediction analysis inspector">
       <div className="inspector-title-row">
@@ -45,6 +52,22 @@ function PredictionInspector({ prediction, layers, onToggleLayer }: PredictionIn
           <figure><img src={`${API_BASE}${prediction.inputImageUrl}`} alt="Input RGB preview" /></figure>
           <figure><img src={`${API_BASE}${prediction.heightMapUrl}`} alt="Estimated nDSM preview" /></figure>
         </div>
+      </InspectorSection>
+
+      <InspectorSection title="Semantics">
+        <div className={`semantic-source ${semanticAvailable ? "available" : "unavailable"}`}>
+          <span className="status-dot" /> {semanticSourceLabel}
+        </div>
+        {semanticAvailable ? <>
+          <img className="semantic-preview" src={`${API_BASE}${prediction.semanticMapUrl}`} alt="GAMUS semantic class preview" />
+          <div className="semantic-legend">
+            {prediction.semanticClasses?.map((semanticClass) => <div key={semanticClass.id} className="semantic-legend-item">
+              <span className="semantic-swatch" style={{ backgroundColor: semanticClass.color }} />
+              <span>{semanticClass.label}</span>
+            </div>)}
+          </div>
+          <small className="semantic-note">Aligned {prediction.semanticGridSize} × {prediction.semanticGridSize} class grid.</small>
+        </> : <div className="inspector-note">This result contains height data only. A trained semantic checkpoint will populate GAMUS classes here.</div>}
       </InspectorSection>
 
       <InspectorSection title="Layers">
@@ -62,7 +85,7 @@ function PredictionInspector({ prediction, layers, onToggleLayer }: PredictionIn
           <div><span>Maximum</span><strong>{prediction.maxHeight.toFixed(1)} m</strong></div>
         </div>
         <div className="inspector-note">Accuracy metrics are available for reference-backed benchmark examples. This prediction is an estimated nDSM, not an absolute DSM.</div>
-        <div className="inspector-note">Buildings: {prediction.buildingRegionSource === "semantic_head" ? "GAMUS semantic mask" : "height-derived fallback"} · {prediction.buildingRegions.length} regions</div>
+        <div className="inspector-note">Buildings: {prediction.buildingRegionSource === "semantic_head" ? "GAMUS semantic mask" : "height-derived fallback"} · {prediction.buildingRegions?.length ?? 0} regions</div>
         {prediction.geospatial && <div className="geospatial-card">
           <strong>GeoTIFF metadata</strong>
           <div className="inspector-stat"><span>CRS</span><strong>{prediction.geospatial.crs ?? "Not defined"}</strong></div>

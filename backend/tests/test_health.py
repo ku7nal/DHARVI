@@ -48,8 +48,11 @@ class FixturePredictionTests(unittest.TestCase):
         self.assertEqual(result["resultType"], "estimated_ndsm")
         self.assertFalse(result["isFixture"])
         self.assertEqual(result["sourceName"], "scene.png")
-        self.assertEqual(result["gridSize"], 128)
-        self.assertEqual(len(result["heightData"]), 128 * 128)
+        self.assertEqual(result["gridSize"], 256)
+        self.assertEqual(len(result["heightData"]), 256 * 256)
+        self.assertEqual(result["semanticSource"], "unavailable")
+        self.assertIsNone(result["semanticData"])
+        self.assertEqual({item["id"] for item in result["semanticClasses"]}, set(range(6)))
         self.assertEqual(result["predictionWidth"], 518)
         self.assertEqual(result["predictionHeight"], 518)
         self.assertEqual(result["minHeight"], 12.0)
@@ -66,6 +69,23 @@ class FixturePredictionTests(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json()["sourceName"], "gamus-urban-demo.png")
         self.assertTrue(response.json()["isFixture"])
+
+    def test_gamus_fixture_returns_aligned_six_class_semantics(self) -> None:
+        response = self.client.post(
+            "/api/predict",
+            data={"example_id": "gamus-urban-demo"},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        result = response.json()
+        self.assertEqual(result["semanticSource"], "fixture")
+        self.assertEqual(result["semanticGridSize"], result["gridSize"])
+        self.assertEqual(len(result["semanticData"]), result["gridSize"] ** 2)
+        self.assertEqual(set(result["semanticData"]), set(range(6)))
+        self.assertEqual(
+            self.client.get(result["semanticMapUrl"]).headers["content-type"],
+            "image/png",
+        )
 
     def test_model_loading_failure_returns_a_clear_service_error(self) -> None:
         main_module.model_service = FailingModelService()

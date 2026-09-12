@@ -15,8 +15,13 @@ type PredictionResult = {
   isFixture: boolean;
   gridSize: number;
   heightData: number[];
-  buildingRegions: BuildingRegion[];
-  buildingRegionSource: "height_threshold_fallback" | "semantic_head";
+  semanticClasses?: SemanticClass[];
+  semanticGridSize?: number | null;
+  semanticData?: number[] | null;
+  semanticMapUrl?: string | null;
+  semanticSource?: "fixture" | "trained" | "unavailable";
+  buildingRegions?: BuildingRegion[];
+  buildingRegionSource?: "height_threshold_fallback" | "semantic_head";
   inputFormat: "image" | "geotiff" | "example";
   geospatial: GeoSpatialMetadata | null;
 };
@@ -29,6 +34,13 @@ type BuildingRegion = {
   height: number;
   roofType: "flat" | "gabled" | "hipped" | "dome";
   source: string;
+};
+
+type SemanticClass = {
+  id: number;
+  name: "ground" | "low_vegetation" | "building" | "water" | "road" | "tree";
+  label: string;
+  color: string;
 };
 
 type GeoSpatialMetadata = {
@@ -66,4 +78,4 @@ type BenchmarkResult = {
 };
 
 export { DEFAULT_SCENE_LAYERS };
-export type { BenchmarkResult, BuildingRegion, GeoSpatialMetadata, PredictionResult, SceneLayers };
+export type { BenchmarkResult, BuildingRegion, GeoSpatialMetadata, PredictionResult, SceneLayers, SemanticClass };

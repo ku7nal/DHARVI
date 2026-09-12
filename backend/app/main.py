@@ -18,6 +18,14 @@ PROJECT_ROOT = Path(__file__).resolve().parents[2]
 CHECKPOINT_PATH = Path(os.getenv("DEPTHWIZARD_CHECKPOINT", PROJECT_ROOT / "astra.pth"))
 model_service = DepthAnythingModelService(CHECKPOINT_PATH)
 SCENE_GRID_SIZE = 256
+SEMANTIC_CLASSES: tuple[dict[str, object], ...] = (
+    {"id": 0, "name": "ground", "label": "Ground", "color": "#b6c99e"},
+    {"id": 1, "name": "low_vegetation", "label": "Low vegetation", "color": "#78a66b"},
+    {"id": 2, "name": "building", "label": "Building", "color": "#c7cbd1"},
+    {"id": 3, "name": "water", "label": "Water", "color": "#72aee8"},
+    {"id": 4, "name": "road", "label": "Road", "color": "#f7f5ef"},
+    {"id": 5, "name": "tree", "label": "Tree", "color": "#3d744d"},
+)
 
 
 app = FastAPI(title="DepthWizard API", version="0.1.0")
@@ -46,6 +54,7 @@ def benchmarks() -> dict[str, list[dict[str, object]]]:
 def _fixture_city() -> Image.Image:
     image = Image.new("RGB", (768, 512), "#c6d5b2")
     draw = ImageDraw.Draw(image)
+    draw.rectangle((0, 0, 768, 42), fill="#72aee8")
     draw.rectangle((0, 210, 768, 275), fill="#f7f5ef")
     draw.rectangle((330, 0, 390, 512), fill="#f7f5ef")
     draw.rectangle((30, 32, 280, 170), fill="#afb9c8")
@@ -71,6 +80,53 @@ def _write_fixture_prediction_assets(image: Image.Image, prediction_id: str) -> 
     height_preview = ImageOps.autocontrast(grayscale).filter(ImageFilter.GaussianBlur(radius=1.2))
     height_preview.save(height_path, format="PNG")
     return f"/media/{input_path.name}", f"/media/{height_path.name}", height_data
+
+
+def _fixture_semantic_grid(grid_size: int = 128) -> np.ndarray:
+    """Create a deterministic, image-aligned six-class GAMUS fixture grid."""
+    labels = np.full((grid_size, grid_size), 0, dtype=np.uint8)
+
+    def rectangle(left: int, top: int, right: int, bottom: int, class_id: int) -> None:
+        labels[top:bottom, left:right] = class_id
+
+    def scaled_rectangle(box: tuple[int, int, int, int], class_id: int) -> None:
+        left, top, right, bottom = box
+        rectangle(
+            round(left / 768 * grid_size),
+            round(top / 512 * grid_size),
+            round(right / 768 * grid_size),
+            round(bottom / 512 * grid_size),
+            class_id,
+        )
+
+    # These regions correspond to the roads, parks, water, and building blocks
+    # drawn by _fixture_city, so every grid cell has the same image coordinate frame.
+    rectangle(0, 0, grid_size, round(grid_size * 0.08), 3)
+    rectangle(0, round(grid_size * 0.41), grid_size, round(grid_size * 0.54), 4)
+    rectangle(round(grid_size * 0.43), 0, round(grid_size * 0.51), grid_size, 4)
+    rectangle(round(grid_size * 0.04), round(grid_size * 0.58), round(grid_size * 0.38), grid_size, 1)
+    scaled_rectangle((30, 32, 280, 170), 2)
+    scaled_rectangle((440, 42, 710, 180), 2)
+    scaled_rectangle((65, 315, 300, 465), 2)
+    scaled_rectangle((440, 315, 700, 475), 2)
+    scaled_rectangle((120, 85, 188, 150), 2)
+    scaled_rectangle((520, 75, 590, 143), 2)
+    scaled_rectangle((485, 350, 565, 440), 2)
+
+    for x, y in [(18, 290), (290, 295), (400, 295), (720, 290), (318, 35), (408, 185)]:
+        center_x = round(x / 768 * grid_size)
+        center_y = round(y / 512 * grid_size)
+        radius = max(2, round(14 / 768 * grid_size))
+        yy, xx = np.ogrid[:grid_size, :grid_size]
+        labels[(xx - center_x) ** 2 + (yy - center_y) ** 2 <= radius**2] = 5
+    return labels
+
+
+def _write_semantic_asset(labels: np.ndarray, prediction_id: str) -> tuple[str, list[int]]:
+    path = MEDIA_DIR / f"{prediction_id}-semantics.png"
+    palette = np.asarray([tuple(int(color.lstrip("#")[index:index + 2], 16) for index in (0, 2, 4)) for color in [item["color"] for item in SEMANTIC_CLASSES]], dtype=np.uint8)
+    Image.fromarray(palette[labels], mode="RGB").save(path, format="PNG")
+    return f"/media/{path.name}", [int(value) for value in labels.ravel()]
 
 
 def _write_model_prediction_assets(
@@ -296,6 +352,10 @@ async def predict(
     geospatial_metadata: dict[str, object] | None = None
     input_format = "example"
     is_fixture = False
+    semantic_map_url: str | None = None
+    semantic_data: list[int] | None = None
+    semantic_grid_size: int | None = None
+    semantic_source = "unavailable"
     if file is not None:
         raw = await file.read()
         source_name = file.filename or "uploaded-image"
@@ -317,6 +377,10 @@ async def predict(
         is_fixture = True
         prediction_id = f"fixture-{prediction_token}"
         input_url, height_url, height_data = _write_fixture_prediction_assets(image, prediction_id)
+        semantic_grid_size = int(np.sqrt(len(height_data)))
+        semantic_labels = _fixture_semantic_grid(semantic_grid_size)
+        semantic_map_url, semantic_data = _write_semantic_asset(semantic_labels, prediction_id)
+        semantic_source = "fixture"
         min_height = 0.0
         max_height = 42.7
     else:
@@ -337,6 +401,11 @@ async def predict(
         "predictionHeight": prediction_height,
         "gridSize": scene_grid_size,
         "heightData": height_data,
+        "semanticClasses": list(SEMANTIC_CLASSES),
+        "semanticGridSize": semantic_grid_size,
+        "semanticData": semantic_data,
+        "semanticMapUrl": semantic_map_url,
+        "semanticSource": semantic_source,
         "buildingRegions": building_regions,
         "buildingRegionSource": "height_threshold_fallback",
         "minHeight": min_height,

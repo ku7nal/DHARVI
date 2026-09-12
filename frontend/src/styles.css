@@ -167,6 +167,15 @@ h1 { margin-bottom: 0; font-family: "Inter Tight", sans-serif; font-size: clamp(
 .inspector-previews figure { overflow: hidden; margin: 0; border: 1px solid #ebe9f1; border-radius: 7px; background: #fff; }
 .inspector-previews img { display: block; width: 100%; height: 132px; object-fit: cover; }
 .inspector-previews figure:nth-child(2) img { filter: contrast(1.2) saturate(1.15); }
+.semantic-source { display: flex; align-items: center; gap: 7px; margin-bottom: 9px; color: #6a6590; font-size: 9px; font-weight: 600; }
+.semantic-source .status-dot { width: 6px; height: 6px; background: #8268df; }
+.semantic-source.unavailable { color: #a19da9; font-weight: 500; }
+.semantic-source.unavailable .status-dot { background: #d3d1dc; box-shadow: none; }
+.semantic-preview { display: block; width: 100%; height: 118px; margin-bottom: 10px; border: 1px solid #ebe9f1; border-radius: 7px; object-fit: cover; image-rendering: pixelated; }
+.semantic-legend { display: grid; grid-template-columns: 1fr 1fr; gap: 6px 8px; }
+.semantic-legend-item { display: flex; align-items: center; gap: 5px; min-width: 0; color: #817e8d; font-size: 9px; }
+.semantic-swatch { width: 9px; height: 9px; flex: 0 0 9px; border-radius: 3px; box-shadow: inset 0 0 0 1px rgba(40, 39, 53, .08); }
+.semantic-note { display: block; margin-top: 9px; color: #aaa7b2; font-size: 8px; }
 .visually-hidden { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
 
 @media (max-width: 850px) {
