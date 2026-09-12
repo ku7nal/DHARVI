@@ -44,3 +44,22 @@ The optional RGB relief layer remains available for inspecting the original heig
 
 The GAMUS semantic-head training path is not enabled by default in this checkout: it requires
 the locally downloaded `classes/` data and a newly trained multitask checkpoint.
+
+## GAMUS multitask training
+
+After downloading GAMUS into a directory containing `images/`, `heights/`, and `classes/`,
+run the reproducible training/evaluation path from the backend environment:
+
+```bash
+cd backend
+.venv/bin/python -m training.gamus_multitask /data/gamus \
+  --baseline-checkpoint /absolute/path/to/astra.pth \
+  --output checkpoints/gamus_multitask.pth \
+  --validation-group Philadelphia
+```
+
+The loader rejects spatially mismatched triplets and ambiguous RGB class masks without an
+explicit palette. Splits are geographic groups rather than random tiles. Validation uses
+overlapping full-image inference and reports height RMSE/MAE/correlation, semantic mIoU,
+building F1, and building-boundary F1. The multitask checkpoint is saved separately and
+records the baseline checkpoint and baseline height metrics used for initialization.
