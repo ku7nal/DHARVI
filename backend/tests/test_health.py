@@ -82,10 +82,22 @@ class FixturePredictionTests(unittest.TestCase):
         self.assertEqual(result["semanticGridSize"], result["gridSize"])
         self.assertEqual(len(result["semanticData"]), result["gridSize"] ** 2)
         self.assertEqual(set(result["semanticData"]), set(range(6)))
-        self.assertEqual(
-            self.client.get(result["semanticMapUrl"]).headers["content-type"],
-            "image/png",
-        )
+        semantic_response = self.client.get(result["semanticMapUrl"])
+        height_response = self.client.get(result["heightMapUrl"])
+        input_response = self.client.get(result["inputImageUrl"])
+        self.assertEqual(semantic_response.headers["content-type"], "image/png")
+        self.assertEqual(Image.open(BytesIO(semantic_response.content)).size, (128, 128))
+        self.assertEqual(Image.open(BytesIO(height_response.content)).size, (128, 128))
+        self.assertEqual(Image.open(BytesIO(input_response.content)).size, (768, 512))
+
+        semantic_grid = np.asarray(result["semanticData"], dtype=np.uint8).reshape((128, 128))
+        # These independent coordinates are anchored to the fixture image regions.
+        self.assertEqual(int(semantic_grid[5, 10]), 3)    # water
+        self.assertEqual(int(semantic_grid[60, 10]), 4)   # horizontal road
+        self.assertEqual(int(semantic_grid[25, 20]), 2)   # building
+        self.assertEqual(int(semantic_grid[100, 10]), 1)  # low vegetation
+        self.assertEqual(int(semantic_grid[72, 3]), 5)    # tree
+        self.assertEqual(int(semantic_grid[120, 120]), 0) # ground
 
     def test_model_loading_failure_returns_a_clear_service_error(self) -> None:
         main_module.model_service = FailingModelService()
