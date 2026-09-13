@@ -76,3 +76,25 @@ explicit palette. Splits are geographic groups rather than random tiles. Validat
 overlapping full-image inference and reports height RMSE/MAE/correlation, semantic mIoU,
 building F1, and building-boundary F1. The multitask checkpoint is saved separately and
 records the baseline checkpoint and baseline height metrics used for initialization.
+
+### Kaggle dataset audit
+
+Attach the complete, versioned GAMUS release to Kaggle as a read-only Dataset. Before training,
+run the audit against the mounted input; it verifies every train/val/test RGB, height, and semantic
+triplet and writes a compact manifest without copying the dataset into `/kaggle/working`:
+
+```bash
+cd backend
+.venv/bin/python -m training.gamus_audit \
+  --root /kaggle/input/gamus \
+  --output /kaggle/working/depthwizard/gamus_manifest.json \
+  --dataset-id owner/gamus \
+  --dataset-revision 42 \
+  --image-key image --height-key height --class-key classes
+```
+
+The audit fails on missing or ambiguous pairs, orphan files, unsupported shapes, invalid semantic
+IDs, and spatial mismatches. It records HDF5 keys, shapes, dtypes, source groups, height statistics,
+invalid-pixel counts, class distributions, and building-pixel fractions. The Kaggle training command
+runs the same audit automatically before constructing the model; use `--audit-only` to stop after
+the manifest is written.

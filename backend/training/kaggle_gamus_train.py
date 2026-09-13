@@ -7,7 +7,8 @@ Kaggle usage:
         --output-dir /kaggle/working/depthwizard \
         --image-key image \
         --height-key height \
-        --class-key classes
+        --class-key classes \
+        --dataset-id owner/gamus --dataset-revision 42
 
 Run with --inspect first when the HDF5 dataset keys are unknown. The script
 keeps GAMUS's supplied train/val/test directories as the authoritative splits.
@@ -20,6 +21,7 @@ from __future__ import annotations
 import argparse
 import json
 import math
+import os
 import random
 from contextlib import nullcontext
 from dataclasses import dataclass
@@ -30,6 +32,7 @@ import numpy as np
 from PIL import Image
 
 from app.semantic_contract import BUILDING_CLASS, CLASS_COUNT, CLASS_NAMES
+from training.gamus_audit import audit_dataset, paired_samples
 
 MEAN = np.asarray([0.485, 0.456, 0.406], dtype=np.float32)
 STD = np.asarray([0.229, 0.224, 0.225], dtype=np.float32)
@@ -82,7 +85,7 @@ def read_h5(path: Path, key: str | None, kind: str) -> np.ndarray:
             raise KeyError(f"HDF5 key {key!r} was not found in {path}")
         values = np.asarray(file[key])
 
-    if values.ndim == 3 and values.shape[0] in (1, 3, 4):
+    if values.ndim == 3 and values.shape[0] in (1, 3, 4) and values.shape[-1] not in (1, 3, 4):
         values = np.moveaxis(values, 0, -1)
     if values.ndim == 3 and values.shape[-1] == 1:
         values = values[..., 0]
@@ -94,21 +97,9 @@ def read_h5(path: Path, key: str | None, kind: str) -> np.ndarray:
 
 
 def index_split(root: Path, split: Literal["train", "val", "test"]) -> list[Sample]:
-    image_dir = root / "images" / split
-    height_dir = root / "heights" / split
-    class_dir = root / "classes" / split
-    if not all(directory.is_dir() for directory in (image_dir, height_dir, class_dir)):
-        raise FileNotFoundError(f"Expected images/heights/classes/{split} directories below {root}")
-
     samples: list[Sample] = []
-    for image in sorted(image_dir.glob("*.h5")):
-        height = height_dir / image.name
-        classes = class_dir / image.name
-        if not height.exists() or not classes.exists():
-            raise FileNotFoundError(f"Missing aligned HDF5 pair for {image.name} in {split}")
+    for image, height, classes in paired_samples(root, split):
         samples.append(Sample(image, height, classes, split))
-    if not samples:
-        raise ValueError(f"No HDF5 files found in {image_dir}")
     return samples
 
 
@@ -342,20 +333,43 @@ def main() -> None:
     parser.add_argument("--image-key")
     parser.add_argument("--height-key")
     parser.add_argument("--class-key")
+    parser.add_argument("--dataset-id", default=os.getenv("KAGGLE_DATASET_ID"))
+    parser.add_argument("--dataset-revision", default=os.getenv("KAGGLE_DATASET_REVISION"))
+    parser.add_argument("--manifest", type=Path)
     parser.add_argument("--image-size", type=int, default=518)
     parser.add_argument("--batch-size", type=int, default=2)
     parser.add_argument("--epochs", type=int, default=30)
     parser.add_argument("--inspect", action="store_true")
+    parser.add_argument("--audit-only", action="store_true")
     args = parser.parse_args()
 
     if args.inspect:
         inspect(args.root)
         return
 
+    args.output_dir.mkdir(parents=True, exist_ok=True)
+    manifest_path = args.manifest or args.output_dir / "gamus_manifest.json"
+    manifest = audit_dataset(
+        args.root,
+        manifest_path,
+        dataset_id=args.dataset_id,
+        dataset_revision=args.dataset_revision,
+        image_key=args.image_key,
+        height_key=args.height_key,
+        class_key=args.class_key,
+    )
+    print(json.dumps({
+        "dataset": manifest["dataset"],
+        "total_sample_count": manifest["total_sample_count"],
+        "splits": {split: report["sample_count"] for split, report in manifest["splits"].items()},
+        "manifest": str(manifest_path),
+    }, indent=2))
+    if args.audit_only:
+        return
+
     random.seed(7)
     np.random.seed(7)
     torch.manual_seed(7)
-    args.output_dir.mkdir(parents=True, exist_ok=True)
     train = index_split(args.root, "train")
     validation = index_split(args.root, "val")
     test = index_split(args.root, "test")
