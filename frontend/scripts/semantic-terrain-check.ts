@@ -19,4 +19,7 @@ isolatedBuilding[5] = BUILDING;
 const groundGeometry = createSemanticSurfaceGeometry(terrain.heights, isolatedBuilding, 4, GROUND, 90, 1);
 if (groundGeometry.getAttribute("position").count !== 20) throw new Error("ground geometry crosses the building cell");
 
+const legacyTerrain = prepareSemanticTerrain(heights, 4, 90);
+if (legacyTerrain.classes.some((classId) => classId !== GROUND)) throw new Error("height-only terrain lost its legacy ground fallback");
+
 console.log("semantic terrain fixture passed");

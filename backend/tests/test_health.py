@@ -123,6 +123,14 @@ class FixturePredictionTests(unittest.TestCase):
         self.assertEqual(Image.open(BytesIO(input_response.content)).size, (768, 512))
 
         semantic_grid = np.asarray(result["semanticData"], dtype=np.uint8).reshape((128, 128))
+        input_grid = np.asarray(
+            Image.open(BytesIO(input_response.content)).convert("RGB").resize((128, 128), Image.Resampling.BILINEAR),
+            dtype=np.uint8,
+        )
+        expected_height_grid = np.asarray(
+            Image.open(BytesIO(input_response.content)).convert("L").resize((128, 128), Image.Resampling.BILINEAR),
+            dtype=np.float32,
+        ) / 255 * 42.7
         # These independent coordinates are anchored to the fixture image regions.
         self.assertEqual(int(semantic_grid[5, 10]), 4)    # water
         self.assertEqual(int(semantic_grid[60, 10]), 5)   # horizontal road
@@ -130,6 +138,27 @@ class FixturePredictionTests(unittest.TestCase):
         self.assertEqual(int(semantic_grid[100, 10]), 2)  # low vegetation
         self.assertEqual(int(semantic_grid[72, 3]), 6)    # tree
         self.assertEqual(int(semantic_grid[120, 120]), 1) # ground
+        self.assertTrue(np.array_equal(input_grid[5, 10], [114, 174, 232]))
+        self.assertAlmostEqual(result["heightData"][5 * 128 + 10], float(expected_height_grid[5, 10]), places=2)
+
+    def test_trained_semantics_are_returned_as_an_aligned_reduced_grid(self) -> None:
+        main_module.model_service = TrainedSemanticModelService()
+        image_bytes = BytesIO()
+        Image.new("RGB", (32, 24), "#8899aa").save(image_bytes, format="PNG")
+
+        response = self.client.post(
+            "/api/predict",
+            files={"file": ("scene.png", image_bytes.getvalue(), "image/png")},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        result = response.json()
+        self.assertEqual(result["semanticSource"], "trained")
+        self.assertEqual(result["semanticGridSize"], result["gridSize"])
+        self.assertEqual(len(result["semanticData"]), result["gridSize"] ** 2)
+        self.assertEqual({item["id"] for item in result["semanticClasses"]}, set(range(7)))
+        self.assertTrue(set(result["semanticData"]).issubset(set(range(7))))
+        self.assertEqual(Image.open(BytesIO(self.client.get(result["semanticMapUrl"]).content)).size, (256, 256))
 
     def test_model_loading_failure_returns_a_clear_service_error(self) -> None:
         main_module.model_service = FailingModelService()
@@ -246,6 +275,18 @@ class FakeModelService:
 class FailingModelService:
     def predict(self, image: Image.Image) -> np.ndarray:
         raise ModelUnavailableError("The fine-tuned model could not be loaded from astra.pth.")
+
+
+class TrainedSemanticModelService:
+    def predict_result(self, image: Image.Image) -> dict[str, np.ndarray]:
+        classes = np.indices((8, 10)).sum(axis=0) % 7
+        semantic = np.full((7, 8, 10), -10.0, dtype=np.float32)
+        for class_id in range(7):
+            semantic[class_id][classes == class_id] = 10.0
+        return {
+            "height": np.full((8, 10), 12.0, dtype=np.float32),
+            "semantic": semantic,
+        }
 
 
 if __name__ == "__main__":

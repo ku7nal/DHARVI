@@ -38,7 +38,7 @@ function PredictionInspector({ prediction, layers, onToggleLayer }: PredictionIn
     ? "Fixture semantic labels"
     : prediction.semanticSource === "trained"
       ? "Trained GAMUS semantic head"
-      : "Semantic head unavailable";
+      : "Height-only fallback semantics";
 
   return (
     <aside className="prediction-inspector" aria-label="Prediction analysis inspector">
@@ -67,7 +67,7 @@ function PredictionInspector({ prediction, layers, onToggleLayer }: PredictionIn
             </div>)}
           </div>
           <small className="semantic-note">Aligned {prediction.semanticGridSize} × {prediction.semanticGridSize} class grid.</small>
-        </> : <div className="inspector-note">This result contains height data only. A trained semantic checkpoint will populate GAMUS classes here.</div>}
+        </> : <div className="inspector-note">This result contains height data only. Building and terrain layers use height-derived fallback behavior until semantic labels are available.</div>}
       </InspectorSection>
 
       <InspectorSection title="Layers">
