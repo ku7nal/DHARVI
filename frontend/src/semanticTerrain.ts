@@ -21,8 +21,10 @@ type SemanticTerrain = {
 function resizeNearest(values: number[], sourceSize: number, targetSize: number): number[] {
   if (sourceSize === targetSize) return [...values];
   return Array.from({ length: targetSize * targetSize }, (_, index) => {
-    const row = Math.min(sourceSize - 1, Math.floor(index / targetSize * sourceSize));
-    const column = Math.min(sourceSize - 1, Math.floor(index % targetSize / targetSize * sourceSize));
+    const targetRow = Math.floor(index / targetSize);
+    const targetColumn = index % targetSize;
+    const row = Math.min(sourceSize - 1, Math.floor(targetRow / targetSize * sourceSize));
+    const column = Math.min(sourceSize - 1, Math.floor(targetColumn / targetSize * sourceSize));
     return values[row * sourceSize + column] ?? GROUND;
   });
 }
