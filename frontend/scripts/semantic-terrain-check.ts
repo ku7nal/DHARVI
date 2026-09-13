@@ -14,6 +14,21 @@ if (terrain.heights[1] !== terrain.heights[0]) throw new Error("water is not sta
 if (terrain.heights[10] !== terrain.heights[0]) throw new Error("road is not stable");
 if (terrain.classes[15] !== OTHERS) throw new Error("others semantic class was lost");
 
+const groundedTerrain = prepareSemanticTerrain(heights, 4, 90, classes, 4, [{
+  centerX: -0.125,
+  centerZ: -0.125,
+  width: 0.25,
+  depth: 0.25,
+  height: 68,
+  groundHeight: 12,
+  wallHeight: 56,
+  roofType: "flat",
+  source: "fixture",
+  footprint: [[-0.25, -0.25], [0, -0.25], [0, 0], [-0.25, 0]],
+  holes: [],
+}]);
+if (groundedTerrain.heights[5] !== 12) throw new Error("building terrain did not use the region ground height");
+
 const isolatedBuilding = Array.from({ length: 16 }, () => GROUND);
 isolatedBuilding[5] = BUILDING;
 const groundGeometry = createSemanticSurfaceGeometry(terrain.heights, isolatedBuilding, 4, GROUND, 90, 1);

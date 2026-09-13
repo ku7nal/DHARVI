@@ -1,4 +1,4 @@
-import type { SemanticClass } from "./types";
+import type { BuildingRegion, SemanticClass } from "./types";
 import * as THREE from "three";
 
 const WORLD_WIDTH = 15;
@@ -35,12 +35,30 @@ function median(values: number[], fallback: number): number {
   return sorted[Math.floor(sorted.length / 2)];
 }
 
+function pointInPolygon(x: number, z: number, polygon: Array<[number, number]>): boolean {
+  let inside = false;
+  for (let index = 0, previous = polygon.length - 1; index < polygon.length; previous = index, index += 1) {
+    const [currentX, currentZ] = polygon[index];
+    const [previousX, previousZ] = polygon[previous];
+    const intersects = (currentZ > z) !== (previousZ > z)
+      && x < (previousX - currentX) * (z - currentZ) / (previousZ - currentZ) + currentX;
+    if (intersects) inside = !inside;
+  }
+  return inside;
+}
+
+function regionContainsCell(region: BuildingRegion, x: number, z: number): boolean {
+  if (!region.footprint || region.footprint.length < 3 || !pointInPolygon(x, z, region.footprint)) return false;
+  return !(region.holes ?? []).some((hole) => hole.length >= 3 && pointInPolygon(x, z, hole));
+}
+
 function prepareSemanticTerrain(
   heightData: number[],
   gridSize: number,
   maxHeight: number,
   semanticData?: number[] | null,
   semanticGridSize?: number | null,
+  buildingRegions?: readonly BuildingRegion[],
 ): SemanticTerrain {
   const hasAlignedSemanticData = Boolean(
     semanticData?.length
@@ -89,7 +107,16 @@ function prepareSemanticTerrain(
     }
     return classes[index] === WATER || classes[index] === ROAD ? baseHeight : median(neighbours, value);
   });
-  return { heights: smoothed, classes, gridSize };
+  const groundedBuildingHeights = smoothed.map((value, index) => {
+    if (classes[index] !== BUILDING || !buildingRegions?.length) return value;
+    const row = Math.floor(index / gridSize);
+    const column = index % gridSize;
+    const x = (column + 0.5) / gridSize - 0.5;
+    const z = (row + 0.5) / gridSize - 0.5;
+    const region = buildingRegions.find((candidate) => Number.isFinite(candidate.groundHeight) && regionContainsCell(candidate, x, z));
+    return region?.groundHeight ?? value;
+  });
+  return { heights: groundedBuildingHeights, classes, gridSize };
 }
 
 function createSemanticSurfaceGeometry(terrainHeights: number[], classes: number[], gridSize: number, classId: number, maxHeight: number, exaggeration: number) {

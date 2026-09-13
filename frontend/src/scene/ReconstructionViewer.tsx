@@ -176,7 +176,7 @@ function InspectionPlane({ heightData, gridSize, maxHeight, onInspect }: { heigh
 
 function StylizedCity({ heightData, gridSize, maxHeight, exaggeration, buildingRegions, wireframe, semanticData, semanticGridSize, semanticClasses, layers }: Omit<ReconstructionViewerProps, "layers" | "inputImageUrl"> & { exaggeration: number; wireframe: boolean; layers: SceneLayers }) {
   const regions = useMemo(() => buildingRegions?.length ? buildingRegions : extractBuildingRegions(heightData, gridSize, maxHeight), [buildingRegions, gridSize, heightData, maxHeight]);
-  const terrain = useMemo(() => prepareSemanticTerrain(heightData, gridSize, maxHeight, semanticData, semanticGridSize), [heightData, gridSize, maxHeight, semanticData, semanticGridSize]);
+  const terrain = useMemo(() => prepareSemanticTerrain(heightData, gridSize, maxHeight, semanticData, semanticGridSize, regions), [heightData, gridSize, maxHeight, semanticData, semanticGridSize, regions]);
   const quality = useMemo(() => validateSceneQuality(heightData, gridSize, maxHeight, regions), [heightData, gridSize, maxHeight, regions]);
   const verticalScale = 3.6 / Math.max(maxHeight, 1) * exaggeration;
 
