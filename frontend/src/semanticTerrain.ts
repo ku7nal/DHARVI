@@ -18,6 +18,7 @@ type SemanticTerrain = {
   heights: number[];
   classes: number[];
   gridSize: number;
+  baseHeight: number;
 };
 
 function resizeNearest(values: number[], sourceSize: number, targetSize: number): number[] {
@@ -153,17 +154,38 @@ function prepareSemanticTerrain(
     const region = buildingRegions.find((candidate) => Number.isFinite(candidate.groundHeight) && regionContainsCell(candidate, x, z));
     return region?.groundHeight ?? value;
   });
-  return { heights: groundedBuildingHeights, classes, gridSize };
+  const spikeSuppressedHeights = groundedBuildingHeights.map((value, index) => {
+    if (classes[index] !== LOW_VEGETATION && classes[index] !== TREE) return value;
+    const row = Math.floor(index / gridSize);
+    const column = index % gridSize;
+    const neighbours: number[] = [];
+    for (let rowDelta = -1; rowDelta <= 1; rowDelta += 1) {
+      for (let columnDelta = -1; columnDelta <= 1; columnDelta += 1) {
+        const nextRow = row + rowDelta;
+        const nextColumn = column + columnDelta;
+        const nextIndex = nextRow * gridSize + nextColumn;
+        if (nextRow < 0 || nextRow >= gridSize || nextColumn < 0 || nextColumn >= gridSize) continue;
+        if (classes[nextIndex] === BUILDING || classes[nextIndex] === ROAD || classes[nextIndex] === WATER) continue;
+        neighbours.push(groundedBuildingHeights[nextIndex]);
+      }
+    }
+    return median(neighbours, value);
+  });
+  return { heights: spikeSuppressedHeights, classes, gridSize, baseHeight };
 }
 
-function createSemanticSurfaceGeometry(terrainHeights: number[], classes: number[], gridSize: number, classId: number, maxHeight: number, exaggeration: number) {
+function createSemanticSurfaceGeometry(terrainHeights: number[], classes: number[], gridSize: number, classId: number, maxHeight: number, exaggeration: number, stableHeight?: number) {
   const positions: number[] = [];
   const indices: number[] = [];
   const verticalScale = 3.6 / Math.max(maxHeight, 1) * exaggeration;
   const heightAtVertex = (row: number, column: number) => {
     const safeRow = Math.max(0, Math.min(gridSize - 1, row));
     const safeColumn = Math.max(0, Math.min(gridSize - 1, column));
-    return (terrainHeights[safeRow * gridSize + safeColumn] ?? 0) * verticalScale + 0.012;
+    const index = safeRow * gridSize + safeColumn;
+    const height = (classes[index] === ROAD || classes[index] === WATER) && Number.isFinite(stableHeight)
+      ? stableHeight!
+      : terrainHeights[index] ?? 0;
+    return height * verticalScale + 0.012;
   };
   for (let row = 0; row < gridSize; row += 1) {
     for (let column = 0; column < gridSize; column += 1) {

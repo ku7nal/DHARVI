@@ -29,6 +29,12 @@ const groundedTerrain = prepareSemanticTerrain(heights, 4, 90, classes, 4, [{
 }]);
 if (groundedTerrain.heights[5] !== 12) throw new Error("building terrain did not use the region ground height");
 
+const greenSpikeClasses = [TREE, GROUND, GROUND, GROUND];
+const greenSpikeTerrain = prepareSemanticTerrain([90, 0, 0, 0], 2, 90, greenSpikeClasses, 2);
+const greenSpikeGeometry = createSemanticSurfaceGeometry(greenSpikeTerrain.heights, greenSpikeTerrain.classes, 2, TREE, 90, 1);
+if (greenSpikeTerrain.heights[0] > 1 || [...greenSpikeGeometry.getAttribute("position").array].some((value, index) => index % 3 === 1 && value > 0.2)) throw new Error("green semantic spike was not suppressed");
+greenSpikeGeometry.dispose();
+
 const isolatedBuilding = Array.from({ length: 16 }, () => GROUND);
 isolatedBuilding[5] = BUILDING;
 const groundGeometry = createSemanticSurfaceGeometry(terrain.heights, isolatedBuilding, 4, GROUND, 90, 1);
@@ -44,6 +50,10 @@ const sharedEdgeHeights = [0, 10, 20, 30];
 const groundEdge = createSemanticSurfaceGeometry(sharedEdgeHeights, mixedClasses, 2, GROUND, 30, 1).getAttribute("position");
 const roadEdge = createSemanticSurfaceGeometry(sharedEdgeHeights, mixedClasses, 2, ROAD, 30, 1).getAttribute("position");
 if (groundEdge.getY(1) !== roadEdge.getY(0) || groundEdge.getY(2) !== roadEdge.getY(3)) throw new Error("semantic boundary heights are not continuous");
+const stableRoad = createSemanticSurfaceGeometry(sharedEdgeHeights, mixedClasses, 2, ROAD, 30, 1, 0).getAttribute("position");
+if ([...stableRoad.array].some((value, index) => index % 3 === 1 && Math.abs(value - 0.012) > 0.0001)) throw new Error("road geometry was not held at the terrain baseline");
+const stableWater = createSemanticSurfaceGeometry(sharedEdgeHeights, mixedClasses, 2, WATER, 30, 1, 0).getAttribute("position");
+if ([...stableWater.array].some((value, index) => index % 3 === 1 && Math.abs(value - 0.012) > 0.0001)) throw new Error("water geometry was not held at the terrain baseline");
 
 const expectedPalette = ["#d9d9d9", "#b6c99e", "#83a96f", "#c7cbd1", "#72aee8", "#e8e1d6", "#4f8258"];
 for (const [classId, expectedColor] of expectedPalette.entries()) {

@@ -1,6 +1,6 @@
 import { Canvas } from "@react-three/fiber";
 import { ContactShadows, FlyControls, OrbitControls, PerformanceMonitor, PerspectiveCamera, useTexture } from "@react-three/drei";
-import { Suspense, useMemo, useState } from "react";
+import { Suspense, useEffect, useMemo, useState } from "react";
 import * as THREE from "three";
 import type { BuildingRegion, SceneLayers, SemanticClass } from "../types";
 import { createBuildingExtrusionGeometry } from "../buildingGeometry";
@@ -119,8 +119,10 @@ function distantBuildingRegion(region: BuildingRegion): BuildingRegion {
 }
 
 function SemanticTerrain({ terrain, maxHeight, exaggeration, layers, wireframe, semanticClasses }: { terrain: ReturnType<typeof prepareSemanticTerrain>; maxHeight: number; exaggeration: number; layers: SceneLayers; wireframe: boolean; semanticClasses?: SemanticClass[] }) {
-  const visibleClassIds = new Set(getVisibleSemanticClassIds({ buildings: layers.buildings, ground: layers.ground, roads: layers.roads, water: layers.water, vegetation: layers.vegetation, trees: layers.trees }));
-  return <group>{SEMANTIC_LAYER_DEFINITIONS.map(({ classId }) => visibleClassIds.has(classId) && <mesh key={classId} geometry={createSemanticSurfaceGeometry(terrain.heights, terrain.classes, terrain.gridSize, classId, maxHeight, exaggeration)}>
+  const visibleClassIds = useMemo(() => getVisibleSemanticClassIds({ buildings: layers.buildings, ground: layers.ground, roads: layers.roads, water: layers.water, vegetation: layers.vegetation, trees: layers.trees }), [layers.buildings, layers.ground, layers.roads, layers.trees, layers.vegetation, layers.water]);
+  const geometries = useMemo(() => visibleClassIds.map((classId) => ({ classId, geometry: createSemanticSurfaceGeometry(terrain.heights, terrain.classes, terrain.gridSize, classId, maxHeight, exaggeration, terrain.baseHeight) })), [exaggeration, maxHeight, terrain.baseHeight, terrain.classes, terrain.gridSize, terrain.heights, visibleClassIds]);
+  useEffect(() => () => geometries.forEach(({ geometry }) => geometry.dispose()), [geometries]);
+  return <group>{geometries.map(({ classId, geometry }) => <mesh key={classId} geometry={geometry}>
     <meshBasicMaterial color={getSemanticClassColor(classId, semanticClasses)} wireframe={wireframe} />
   </mesh>)}</group>;
 }
