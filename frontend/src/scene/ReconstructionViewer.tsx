@@ -6,7 +6,7 @@ import type { BuildingRegion, SceneLayers, SemanticClass } from "../types";
 import { createBuildingExtrusionGeometry } from "../buildingGeometry";
 import { getBuildingLayout } from "../sceneGeometry";
 import { getBuildingDetailLevel, validateSceneQuality } from "../sceneQuality";
-import { BUILDING, GROUND, LOW_VEGETATION, OTHERS, ROAD, TREE, WATER, createSemanticSurfaceGeometry, getSemanticClassColor, prepareSemanticTerrain } from "../semanticTerrain";
+import { BUILDING, SEMANTIC_LAYER_DEFINITIONS, createSemanticSurfaceGeometry, getSemanticClassColor, getVisibleSemanticClassIds, prepareSemanticTerrain } from "../semanticTerrain";
 
 type ReconstructionViewerProps = {
   heightData: number[];
@@ -119,8 +119,8 @@ function distantBuildingRegion(region: BuildingRegion): BuildingRegion {
 }
 
 function SemanticTerrain({ terrain, maxHeight, exaggeration, layers, wireframe, semanticClasses }: { terrain: ReturnType<typeof prepareSemanticTerrain>; maxHeight: number; exaggeration: number; layers: SceneLayers; wireframe: boolean; semanticClasses?: SemanticClass[] }) {
-  const layerDefinitions = [[OTHERS, true], [GROUND, layers.ground], [LOW_VEGETATION, layers.vegetation], [BUILDING, layers.buildings], [WATER, layers.water], [ROAD, layers.roads], [TREE, layers.trees]] as const;
-  return <group>{layerDefinitions.map(([classId, enabled]) => enabled && <mesh key={classId} geometry={createSemanticSurfaceGeometry(terrain.heights, terrain.classes, terrain.gridSize, classId, maxHeight, exaggeration)}>
+  const visibleClassIds = new Set(getVisibleSemanticClassIds({ buildings: layers.buildings, ground: layers.ground, roads: layers.roads, water: layers.water, vegetation: layers.vegetation, trees: layers.trees }));
+  return <group>{SEMANTIC_LAYER_DEFINITIONS.map(({ classId }) => visibleClassIds.has(classId) && <mesh key={classId} geometry={createSemanticSurfaceGeometry(terrain.heights, terrain.classes, terrain.gridSize, classId, maxHeight, exaggeration)}>
     <meshBasicMaterial color={getSemanticClassColor(classId, semanticClasses)} wireframe={wireframe} />
   </mesh>)}</group>;
 }

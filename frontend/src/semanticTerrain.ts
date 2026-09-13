@@ -12,6 +12,8 @@ const WATER = 4;
 const ROAD = 5;
 const TREE = 6;
 
+type SemanticLayerName = "buildings" | "ground" | "roads" | "water" | "vegetation" | "trees";
+
 type SemanticTerrain = {
   heights: number[];
   classes: number[];
@@ -198,11 +200,27 @@ const SEMANTIC_TERRAIN_CLASSES: Array<Pick<SemanticClass, "id" | "name" | "color
   { id: TREE, name: "tree", color: "#4f8258" },
 ];
 
+const SEMANTIC_LAYER_DEFINITIONS: ReadonlyArray<{ classId: number; layer: SemanticLayerName | null }> = [
+  { classId: OTHERS, layer: null },
+  { classId: GROUND, layer: "ground" },
+  { classId: LOW_VEGETATION, layer: "vegetation" },
+  { classId: BUILDING, layer: "buildings" },
+  { classId: WATER, layer: "water" },
+  { classId: ROAD, layer: "roads" },
+  { classId: TREE, layer: "trees" },
+];
+
+function getVisibleSemanticClassIds(layers: Readonly<Record<SemanticLayerName, boolean>>): number[] {
+  return SEMANTIC_LAYER_DEFINITIONS
+    .filter(({ layer }) => layer === null || layers[layer])
+    .map(({ classId }) => classId);
+}
+
 function getSemanticClassColor(classId: number, semanticClasses?: Array<Pick<SemanticClass, "id" | "color">>): string {
   return semanticClasses?.find((semanticClass) => semanticClass.id === classId)?.color
     ?? SEMANTIC_TERRAIN_CLASSES.find((semanticClass) => semanticClass.id === classId)?.color
     ?? SEMANTIC_TERRAIN_CLASSES[GROUND].color;
 }
 
-export { BUILDING, GROUND, LOW_VEGETATION, OTHERS, ROAD, SEMANTIC_TERRAIN_CLASSES, TREE, WATER, createSemanticSurfaceGeometry, getSemanticClassColor, prepareSemanticTerrain, smoothSemanticClasses };
+export { BUILDING, GROUND, LOW_VEGETATION, OTHERS, ROAD, SEMANTIC_LAYER_DEFINITIONS, SEMANTIC_TERRAIN_CLASSES, TREE, WATER, createSemanticSurfaceGeometry, getSemanticClassColor, getVisibleSemanticClassIds, prepareSemanticTerrain, smoothSemanticClasses };
 export type { SemanticTerrain };

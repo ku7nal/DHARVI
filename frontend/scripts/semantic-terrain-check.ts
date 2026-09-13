@@ -1,4 +1,4 @@
-import { BUILDING, GROUND, LOW_VEGETATION, OTHERS, ROAD, SEMANTIC_TERRAIN_CLASSES, TREE, WATER, createSemanticSurfaceGeometry, getSemanticClassColor, prepareSemanticTerrain, smoothSemanticClasses } from "../src/semanticTerrain.ts";
+import { BUILDING, GROUND, LOW_VEGETATION, OTHERS, ROAD, SEMANTIC_LAYER_DEFINITIONS, SEMANTIC_TERRAIN_CLASSES, TREE, WATER, createSemanticSurfaceGeometry, getSemanticClassColor, getVisibleSemanticClassIds, prepareSemanticTerrain, smoothSemanticClasses } from "../src/semanticTerrain.ts";
 
 const classes = Array.from({ length: 16 }, () => GROUND);
 classes[5] = BUILDING;
@@ -52,6 +52,16 @@ for (const [classId, expectedColor] of expectedPalette.entries()) {
 if (getSemanticClassColor(ROAD, [{ id: ROAD, color: "#123456" }]) !== "#123456") throw new Error("prediction palette was ignored");
 if (getSemanticClassColor(99) !== "#b6c99e") throw new Error("unknown palette class has no safe fallback");
 
+const allSemanticLayers = { buildings: true, ground: true, roads: true, water: true, vegetation: true, trees: true };
+const allVisibleClassIds = getVisibleSemanticClassIds(allSemanticLayers);
+if (allVisibleClassIds.length !== SEMANTIC_LAYER_DEFINITIONS.length || new Set(allVisibleClassIds).size !== allVisibleClassIds.length) throw new Error("semantic layer mapping is incomplete");
+for (const definition of SEMANTIC_LAYER_DEFINITIONS) {
+  if (!definition.layer) continue;
+  const visibleWithLayerDisabled = getVisibleSemanticClassIds({ ...allSemanticLayers, [definition.layer]: false });
+  if (visibleWithLayerDisabled.includes(definition.classId)) throw new Error(`layer toggle did not hide class ${definition.classId}`);
+  if (visibleWithLayerDisabled.length !== allVisibleClassIds.length - 1) throw new Error(`layer toggle affected unrelated classes for ${definition.layer}`);
+}
+
 const invalidTerrain = prepareSemanticTerrain([0, 0, 0, 0], 2, 1, [99, -1, Number.NaN, GROUND], 2);
 if (invalidTerrain.classes.join(",") !== `${GROUND},${GROUND},${GROUND},${GROUND}`) throw new Error("invalid semantic class was not safely normalized");
 
@@ -81,6 +91,7 @@ const totalBudgetCells = budgetGeometries.reduce((total, geometry) => {
   const positions = geometry.getAttribute("position").count;
   const indices = geometry.getIndex()?.count ?? 0;
   if (positions % 4 !== 0 || indices % 6 !== 0) throw new Error("semantic geometry has an invalid tile shape");
+  if ([...geometry.getAttribute("position").array, ...geometry.getAttribute("normal").array].some((value) => !Number.isFinite(value))) throw new Error("semantic geometry is unstable from camera angles");
   geometry.dispose();
   return total + positions / 4;
 }, 0);
