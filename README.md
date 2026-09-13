@@ -4,6 +4,16 @@ DepthWizard turns aerial RGB imagery into an interactive estimated nDSM visualiz
 
 ## Local development
 
+### One-command local startup
+
+After installing the dependencies below, start both services with:
+
+```bash
+./scripts/start-local.sh
+```
+
+The script uses `DEPTHWIZARD_CHECKPOINT` when set, otherwise `dinosaur.pth`. It checks the backend virtual environment, frontend dependencies, and checkpoint before starting FastAPI on port 8000 and Vite on port 5173. Run `./scripts/verify-deliverable.sh` for the complete pre-demo check.
+
 ### Backend
 
 ```bash
@@ -16,8 +26,8 @@ python3 -m venv .venv
 Use the virtual-environment interpreter to start Uvicorn. On macOS, the system/Homebrew
 Python may resolve a different PyTorch build and load a second `libomp.dylib`.
 
-Place the fine-tuned checkpoint at the repository root as `astra.pth`, or point to it with
-`DEPTHWIZARD_CHECKPOINT=/absolute/path/to/astra.pth`. The first real image upload also
+Place the fine-tuned checkpoint at the repository root as `dinosaur.pth`, or point to it with
+`DEPTHWIZARD_CHECKPOINT=/absolute/path/to/checkpoint.pth`. The first real image upload also
 downloads the base `depth-anything/Depth-Anything-V2-Small-hf` weights from Hugging Face and
 caches them locally. The `Try a GAMUS example` action remains fixture-backed for fast UI checks.
 
@@ -29,9 +39,12 @@ npm install
 npm run dev
 ```
 
-Open `http://localhost:5173` in a browser. Uploaded PNG, JPEG, RGB GeoTIFF, and RGBA GeoTIFF
+Open `http://localhost:5173` in a browser. Uploaded PNG, JPG/JPEG, RGB GeoTIFF, and RGBA GeoTIFF
 files use the fine-tuned model and render an estimated nDSM scene in meters. The frontend
 reports whether the FastAPI health endpoint is reachable.
+
+Uploads are limited to 256 MB by default. Set `DEPTHWIZARD_MAX_UPLOAD_BYTES` for a controlled
+offline demo with a different limit.
 
 ## Reconstruction modes
 
@@ -53,7 +66,7 @@ run the reproducible training/evaluation path from the backend environment:
 ```bash
 cd backend
 .venv/bin/python -m training.gamus_multitask /data/gamus \
-  --baseline-checkpoint /absolute/path/to/astra.pth \
+  --baseline-checkpoint /absolute/path/to/checkpoint.pth \
   --output checkpoints/gamus_multitask.pth \
   --validation-group Philadelphia
 ```

@@ -21,6 +21,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[2]
 CHECKPOINT_PATH = Path(os.getenv("DEPTHWIZARD_CHECKPOINT", PROJECT_ROOT / "dinosaur.pth"))
 model_service = DepthAnythingModelService(CHECKPOINT_PATH)
 SCENE_GRID_SIZE = 256
+MAX_UPLOAD_BYTES = int(os.getenv("DEPTHWIZARD_MAX_UPLOAD_BYTES", str(256 * 1024 * 1024)))
 
 
 app = FastAPI(title="DepthWizard API", version="0.1.0")
@@ -435,8 +436,11 @@ async def predict(
     }
     if file is not None:
         raw = await file.read()
+        if len(raw) > MAX_UPLOAD_BYTES:
+            limit_mb = MAX_UPLOAD_BYTES / (1024 * 1024)
+            raise HTTPException(status_code=413, detail=f"The uploaded file is too large. Maximum size is {limit_mb:.0f} MB.")
         source_name = file.filename or "uploaded-image"
-        if not _is_geotiff(source_name, file.content_type) and file.content_type not in {"image/png", "image/jpeg"}:
+        if not _is_geotiff(source_name, file.content_type) and file.content_type not in {"image/png", "image/jpeg", "image/jpg"}:
             raise HTTPException(status_code=415, detail="Use a PNG, JPEG, or RGB GeoTIFF image.")
         image, geospatial_metadata, input_format = _read_image(raw, source_name, file.content_type)
         try:

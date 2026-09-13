@@ -192,6 +192,20 @@ class FixturePredictionTests(unittest.TestCase):
 
         self.assertEqual(response.status_code, 415)
 
+    def test_oversized_upload_is_rejected_before_model_inference(self) -> None:
+        original_limit = main_module.MAX_UPLOAD_BYTES
+        main_module.MAX_UPLOAD_BYTES = 4
+        try:
+            response = self.client.post(
+                "/api/predict",
+                files={"file": ("scene.png", b"12345", "image/png")},
+            )
+        finally:
+            main_module.MAX_UPLOAD_BYTES = original_limit
+
+        self.assertEqual(response.status_code, 413)
+        self.assertIn("too large", response.json()["detail"])
+
     def test_rgb_geotiff_preserves_geospatial_metadata(self) -> None:
         with NamedTemporaryFile(suffix=".TIF") as raster_file:
             transform = from_origin(72.8, 19.1, 0.0001, 0.0001)
