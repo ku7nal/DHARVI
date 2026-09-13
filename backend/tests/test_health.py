@@ -76,6 +76,17 @@ class FixturePredictionTests(unittest.TestCase):
         self.assertEqual(self.client.get(result["inputImageUrl"]).status_code, 200)
         self.assertEqual(self.client.get(result["heightMapUrl"]).status_code, 200)
 
+    def test_height_fallback_buildings_use_the_building_class(self) -> None:
+        from app.main import _building_regions
+
+        heights = np.zeros((8, 8), dtype=np.float32)
+        heights[2:6, 2:6] = 12
+
+        regions = _building_regions(heights.ravel(), 8, 12)
+
+        self.assertEqual(len(regions), 1)
+        self.assertEqual(regions[0]["source"], "height_threshold_fallback")
+
     def test_1024_input_preserves_full_image_dimensions_and_scene_grid(self) -> None:
         image_bytes = BytesIO()
         Image.new("RGB", (1024, 1024), "#8899aa").save(image_bytes, format="PNG")
@@ -117,6 +128,14 @@ class FixturePredictionTests(unittest.TestCase):
         self.assertTrue(result["buildingRegions"])
         self.assertTrue(all(len(region["footprint"]) >= 3 for region in result["buildingRegions"]))
         self.assertTrue(all("groundHeight" in region for region in result["buildingRegions"]))
+        self.assertTrue(all(region["wallHeight"] >= 0 for region in result["buildingRegions"]))
+        def signed_area(points: list[list[float]]) -> float:
+            return sum(
+                points[index][0] * points[(index + 1) % len(points)][1]
+                - points[(index + 1) % len(points)][0] * points[index][1]
+                for index in range(len(points))
+            ) / 2
+        self.assertTrue(all(abs(signed_area(region["footprint"])) > 0 for region in result["buildingRegions"]))
         self.assertTrue(all(region["roofType"] in {"flat", "gabled", "hipped", "dome"} for region in result["buildingRegions"]))
         self.assertTrue(all("wallHeight" in region and "roofRise" in region for region in result["buildingRegions"]))
         semantic_response = self.client.get(result["semanticMapUrl"])
@@ -164,6 +183,20 @@ class FixturePredictionTests(unittest.TestCase):
         self.assertEqual({item["id"] for item in result["semanticClasses"]}, set(range(7)))
         self.assertTrue(set(result["semanticData"]).issubset(set(range(7))))
         self.assertEqual(Image.open(BytesIO(self.client.get(result["semanticMapUrl"]).content)).size, (256, 256))
+
+    def test_semantic_logits_are_resized_before_scene_labels_are_selected(self) -> None:
+        from app.main import _prepare_semantic_labels
+
+        logits = np.full((7, 2, 2), -10.0, dtype=np.float32)
+        logits[1] = 0.0
+        logits[3, 0, 0] = 10.0
+
+        full_labels, scene_labels = _prepare_semantic_labels(logits, 8)
+
+        self.assertEqual(full_labels.shape, (2, 2))
+        self.assertEqual(scene_labels.shape, (8, 8))
+        self.assertEqual(int(scene_labels[3, 3]), 1)
+        self.assertTrue(np.all((scene_labels >= 0) & (scene_labels < 7)))
 
     def test_model_loading_failure_returns_a_clear_service_error(self) -> None:
         main_module.model_service = FailingModelService()

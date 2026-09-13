@@ -2,11 +2,25 @@ import unittest
 
 import numpy as np
 
-from app.building_footprints import extract_building_footprints, infer_roof_type
+from app.building_footprints import clean_semantic_labels, extract_building_footprints, infer_roof_type
 from app.semantic_contract import BUILDING_CLASS
 
 
 class BuildingFootprintTests(unittest.TestCase):
+    def test_semantic_cleanup_removes_tiny_buildings_and_fills_small_holes(self) -> None:
+        labels = np.ones((12, 12), dtype=np.uint8)
+        labels[2:9, 2:9] = BUILDING_CLASS
+        labels[5, 5] = 0
+        labels[1, 1] = BUILDING_CLASS
+        labels[9, 9] = BUILDING_CLASS
+
+        cleaned = clean_semantic_labels(labels, minimum_building_area=4, maximum_building_hole_area=2)
+
+        self.assertEqual(int(cleaned[5, 5]), BUILDING_CLASS)
+        self.assertEqual(int(cleaned[1, 1]), 1)
+        self.assertEqual(int(cleaned[9, 9]), 1)
+        self.assertEqual(int(cleaned[4, 4]), BUILDING_CLASS)
+
     def test_roof_type_inference_uses_height_profiles(self) -> None:
         labels = np.zeros((11, 11), dtype=np.uint8)
         labels[2:9, 2:9] = BUILDING_CLASS

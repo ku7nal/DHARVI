@@ -89,6 +89,75 @@ def _components(mask: np.ndarray, minimum_area: int) -> list[list[tuple[int, int
     return components
 
 
+def clean_semantic_labels(
+    labels: np.ndarray,
+    *,
+    minimum_building_area: int = 4,
+    maximum_building_hole_area: int = 4,
+) -> np.ndarray:
+    """Remove isolated semantic noise and stabilize building regions."""
+    values = np.asarray(labels)
+    if values.ndim != 2:
+        raise ValueError("labels must be a 2D semantic raster")
+    cleaned = values.astype(np.uint8, copy=True)
+    rows, columns = cleaned.shape
+
+    # Correct isolated one-cell disagreements without blurring meaningful
+    # linear classes such as roads. A strong local majority is required.
+    majority = cleaned.copy()
+    for row in range(rows):
+        for column in range(columns):
+            row_start = max(0, row - 1)
+            row_end = min(rows, row + 2)
+            column_start = max(0, column - 1)
+            column_end = min(columns, column + 2)
+            window = cleaned[row_start:row_end, column_start:column_end].ravel()
+            counts = np.bincount(window, minlength=7)
+            dominant = int(np.argmax(counts))
+            if dominant != int(cleaned[row, column]) and counts[dominant] >= 6:
+                majority[row, column] = dominant
+    cleaned = majority
+
+    building_mask = cleaned == BUILDING_CLASS
+    for component in _components(building_mask, 1):
+        if len(component) >= max(1, minimum_building_area):
+            continue
+        neighbours: list[int] = []
+        for row, column in component:
+            for row_delta in (-1, 0, 1):
+                for column_delta in (-1, 0, 1):
+                    next_row = row + row_delta
+                    next_column = column + column_delta
+                    if 0 <= next_row < rows and 0 <= next_column < columns and not building_mask[next_row, next_column]:
+                        neighbours.append(int(cleaned[next_row, next_column]))
+        replacement = int(np.argmax(np.bincount(neighbours, minlength=7))) if neighbours else 1
+        for row, column in component:
+            cleaned[row, column] = replacement
+            building_mask[row, column] = False
+
+    # Fill only small enclosed non-building components. Components touching
+    # the raster edge are real exterior classes and must remain untouched.
+    for component in _components(~building_mask, 1):
+        if len(component) > max(0, maximum_building_hole_area):
+            continue
+        if any(row in (0, rows - 1) or column in (0, columns - 1) for row, column in component):
+            continue
+        surrounding = set()
+        for row, column in component:
+            for row_delta in (-1, 0, 1):
+                for column_delta in (-1, 0, 1):
+                    next_row = row + row_delta
+                    next_column = column + column_delta
+                    if 0 <= next_row < rows and 0 <= next_column < columns and (next_row, next_column) not in component:
+                        surrounding.add((next_row, next_column))
+        if not surrounding or not all(building_mask[row, column] for row, column in surrounding):
+            continue
+        for row, column in component:
+            cleaned[row, column] = BUILDING_CLASS
+
+    return cleaned
+
+
 def _boundary_loops(component: set[tuple[int, int]]) -> list[list[tuple[int, int]]]:
     edges: dict[tuple[int, int], list[tuple[int, int]]] = defaultdict(list)
     for row, column in component:

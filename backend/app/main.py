@@ -10,7 +10,7 @@ from fastapi.staticfiles import StaticFiles
 from PIL import Image, ImageDraw, ImageFilter, ImageOps
 from rasterio.io import MemoryFile
 
-from app.building_footprints import extract_building_footprints
+from app.building_footprints import clean_semantic_labels, extract_building_footprints
 from app.geospatial import calibrate_dsm, parse_ground_control_points, write_dsm_geotiff
 from app.model_service import DepthAnythingModelService, ModelUnavailableError
 from app.semantic_contract import BUILDING_CLASS, CLASS_COUNT, SEMANTIC_CLASSES
@@ -22,6 +22,28 @@ CHECKPOINT_PATH = Path(os.getenv("DEPTHWIZARD_CHECKPOINT", PROJECT_ROOT / "dinos
 model_service = DepthAnythingModelService(CHECKPOINT_PATH)
 SCENE_GRID_SIZE = 256
 MAX_UPLOAD_BYTES = int(os.getenv("DEPTHWIZARD_MAX_UPLOAD_BYTES", str(256 * 1024 * 1024)))
+
+
+def _resize_semantic_logits(logits: np.ndarray, target_size: int) -> np.ndarray:
+    """Resize continuous class evidence before converting it to labels."""
+    values = np.asarray(logits, dtype=np.float32)
+    if values.ndim != 3:
+        raise ValueError("semantic logits must have shape (classes, height, width)")
+    return np.stack([
+        np.asarray(
+            Image.fromarray(channel, mode="F").resize((target_size, target_size), Image.Resampling.BILINEAR),
+            dtype=np.float32,
+        )
+        for channel in values
+    ])
+
+
+def _prepare_semantic_labels(logits: np.ndarray, target_size: int) -> tuple[np.ndarray, np.ndarray]:
+    """Return cleaned full-resolution and scene-grid semantic labels."""
+    values = np.asarray(logits, dtype=np.float32)
+    full_labels = clean_semantic_labels(np.argmax(values, axis=0).astype(np.uint8))
+    scene_labels = clean_semantic_labels(np.argmax(_resize_semantic_logits(values, target_size), axis=0).astype(np.uint8))
+    return full_labels, scene_labels
 
 
 app = FastAPI(title="DepthWizard API", version="0.1.0")
@@ -178,7 +200,7 @@ def _building_regions(
             return []
         threshold = max(float(np.percentile(non_zero, 72)), max_height * 0.2, 0.75)
         labels = np.zeros(values.shape, dtype=np.uint8)
-        labels[values >= threshold] = 2
+        labels[values >= threshold] = BUILDING_CLASS
 
     regions = extract_building_footprints(labels, values)
     for region in regions:
@@ -450,15 +472,9 @@ async def predict(
                 if "semantic" in prediction:
                     if prediction["semantic"].shape[0] != len(SEMANTIC_CLASSES):
                         raise ModelUnavailableError("The model returned an invalid number of GAMUS semantic channels.")
-                    semantic_labels = np.argmax(prediction["semantic"], axis=0).astype(np.uint8)
+                    semantic_labels, semantic_grid = _prepare_semantic_labels(prediction["semantic"], SCENE_GRID_SIZE)
                     if semantic_labels.size and (semantic_labels.min() < 0 or semantic_labels.max() >= len(SEMANTIC_CLASSES)):
                         raise ModelUnavailableError("The model returned a semantic class outside GAMUS IDs 0..6.")
-                    semantic_grid = np.asarray(
-                        Image.fromarray(semantic_labels, mode="L").resize(
-                            (SCENE_GRID_SIZE, SCENE_GRID_SIZE), Image.Resampling.NEAREST
-                        ),
-                        dtype=np.uint8,
-                    )
                     semantic_map_url, semantic_data = _write_semantic_asset(semantic_grid, prediction_id)
                     semantic_grid_size = SCENE_GRID_SIZE
                     semantic_source = "trained"
@@ -470,6 +486,13 @@ async def predict(
             image,
             height_map,
             prediction_id,
+        )
+        full_building_regions = _building_regions(
+            height_data,
+            SCENE_GRID_SIZE,
+            max_height,
+            semantic_data,
+            semantic_grid_size,
         )
         if input_format == "geotiff":
             try:
@@ -517,7 +540,7 @@ async def predict(
     prediction_width = int(height_map.shape[1]) if not is_fixture else 128
     prediction_height = int(height_map.shape[0]) if not is_fixture else 128
     scene_grid_size = int(np.sqrt(len(height_data)))
-    building_regions = _building_regions(
+    building_regions = full_building_regions if not is_fixture and "full_building_regions" in locals() else _building_regions(
         height_data,
         scene_grid_size,
         max_height,
