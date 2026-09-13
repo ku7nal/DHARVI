@@ -9,7 +9,8 @@ type PredictionResult = {
   predictionHeight: number;
   minHeight: number;
   maxHeight: number;
-  resultType: "estimated_ndsm";
+  resultType: "estimated_ndsm" | "metric_dsm";
+  heightReference: "relative" | "absolute";
   heightUnit: "meters";
   sourceName: string;
   isFixture: boolean;
@@ -24,6 +25,17 @@ type PredictionResult = {
   buildingRegionSource?: "height_threshold_fallback" | "semantic_head";
   inputFormat: "image" | "geotiff" | "example";
   geospatial: GeoSpatialMetadata | null;
+  dsmUrl?: string | null;
+  calibration?: CalibrationMetadata;
+};
+
+type CalibrationMetadata = {
+  status: "not_applicable" | "calibrated" | "insufficient_ground_evidence" | "invalid_ground_control_points" | "missing_spatial_reference" | "invalid_spatial_metadata";
+  method: string | null;
+  confidence: number | null;
+  residualError: number | null;
+  groundPixelCount: number | null;
+  error?: string;
 };
 
 type BuildingRegion = {
@@ -94,4 +106,4 @@ type BenchmarkResult = {
 };
 
 export { DEFAULT_SCENE_LAYERS };
-export type { BenchmarkResult, BuildingRegion, GeoSpatialMetadata, PredictionResult, SceneLayers, SemanticClass };
+export type { BenchmarkResult, BuildingRegion, CalibrationMetadata, GeoSpatialMetadata, PredictionResult, SceneLayers, SemanticClass };

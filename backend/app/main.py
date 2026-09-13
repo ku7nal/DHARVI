@@ -11,6 +11,7 @@ from PIL import Image, ImageDraw, ImageFilter, ImageOps
 from rasterio.io import MemoryFile
 
 from app.building_footprints import extract_building_footprints
+from app.geospatial import calibrate_dsm, parse_ground_control_points, write_dsm_geotiff
 from app.model_service import DepthAnythingModelService, ModelUnavailableError
 from app.semantic_contract import SEMANTIC_CLASSES
 
@@ -347,6 +348,8 @@ def _read_image(raw: bytes, filename: str, content_type: str | None) -> tuple[Im
 async def predict(
     file: UploadFile | None = File(default=None),
     example_id: str | None = Form(default=None),
+    ground_elevation: float | None = Form(default=None),
+    ground_control_points: str | None = Form(default=None),
 ) -> dict[str, object]:
     if file is None and example_id is None:
         raise HTTPException(status_code=400, detail="Upload an image or choose a GAMUS example.")
@@ -360,6 +363,15 @@ async def predict(
     semantic_data: list[int] | None = None
     semantic_grid_size: int | None = None
     semantic_source = "unavailable"
+    semantic_labels: np.ndarray | None = None
+    dsm_url: str | None = None
+    calibration: dict[str, object] = {
+        "status": "not_applicable",
+        "method": None,
+        "confidence": None,
+        "residualError": None,
+        "groundPixelCount": None,
+    }
     if file is not None:
         raw = await file.read()
         source_name = file.filename or "uploaded-image"
@@ -394,6 +406,34 @@ async def predict(
             height_map,
             prediction_id,
         )
+        if input_format == "geotiff":
+            try:
+                points = parse_ground_control_points(ground_control_points)
+            except ValueError as error:
+                raise HTTPException(status_code=400, detail=str(error)) from error
+            if not geospatial_metadata or not geospatial_metadata.get("crs"):
+                calibration = {
+                    "status": "missing_spatial_reference",
+                    "method": None,
+                    "confidence": 0.0,
+                    "residualError": None,
+                    "groundPixelCount": 0,
+                }
+            else:
+                dsm, calibration = calibrate_dsm(height_map, semantic_labels, ground_elevation, points)
+                if dsm is not None:
+                    dsm_path = MEDIA_DIR / f"{prediction_id}-dsm.tif"
+                    try:
+                        write_dsm_geotiff(dsm_path, dsm, geospatial_metadata)
+                    except ValueError as error:
+                        calibration = {
+                            **calibration,
+                            "status": "invalid_spatial_metadata",
+                            "error": str(error),
+                            "groundPixelCount": calibration.get("groundPixelCount", 0),
+                        }
+                    else:
+                        dsm_url = f"/media/{dsm_path.name}"
     elif example_id == "gamus-urban-demo":
         image = _fixture_city()
         source_name = "gamus-urban-demo.png"
@@ -439,8 +479,11 @@ async def predict(
         "buildingRegionSource": "semantic_head" if semantic_source in {"fixture", "trained"} else "height_threshold_fallback",
         "minHeight": min_height,
         "maxHeight": max_height,
-        "resultType": "estimated_ndsm",
+        "resultType": "metric_dsm" if dsm_url else "estimated_ndsm",
+        "heightReference": "absolute" if dsm_url else "relative",
         "heightUnit": "meters",
+        "dsmUrl": dsm_url,
+        "calibration": calibration,
         "sourceName": source_name,
         "isFixture": is_fixture,
         "inputFormat": input_format,

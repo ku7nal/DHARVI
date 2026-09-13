@@ -158,7 +158,7 @@ function App() {
                 <p className="eyebrow">Monocular height reconstruction</p>
                 <h1>{activeNav === "New reconstruction" ? "New reconstruction" : activeNav}</h1>
               </div>
-              <div className="content-meta">Estimated nDSM · meters</div>
+                <div className="content-meta">{prediction?.heightReference === "absolute" ? "Metric DSM · meters" : "Estimated nDSM · relative meters"}</div>
             </div>
 
             {activeNav === "New reconstruction" && predictionState === "success" && prediction ? (
@@ -184,7 +184,7 @@ function App() {
                   <PredictionInspector prediction={prediction} layers={layers} onToggleLayer={(layer) => setLayers((current) => ({ ...current, [layer]: !current[layer] }))} />
                 </div>
                 <div className="result-footer">
-                  <span>Estimated nDSM · meters</span>
+                  <span>{prediction.heightReference === "absolute" ? "Metric DSM · meters" : "Estimated nDSM · relative meters"}</span>
                   <span>{prediction.width} × {prediction.height} input · {prediction.gridSize} × {prediction.gridSize} scene</span>
                   <button className="text-button" onClick={() => { setPrediction(null); setPredictionState("idle"); setSelectedFile(null); }}>New reconstruction <span>→</span></button>
                 </div>

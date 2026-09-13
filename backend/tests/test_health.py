@@ -6,6 +6,7 @@ from fastapi.testclient import TestClient
 import numpy as np
 from PIL import Image
 import rasterio
+from rasterio.io import MemoryFile
 from rasterio.transform import from_origin
 
 from app import main as main_module
@@ -59,6 +60,10 @@ class FixturePredictionTests(unittest.TestCase):
         self.assertEqual(result["resultType"], "estimated_ndsm")
         self.assertFalse(result["isFixture"])
         self.assertEqual(result["sourceName"], "scene.png")
+        self.assertEqual(result["heightReference"], "relative")
+        self.assertEqual(result["resultType"], "estimated_ndsm")
+        self.assertIsNone(result["dsmUrl"])
+        self.assertEqual(result["calibration"]["status"], "not_applicable")
         self.assertEqual(result["gridSize"], 256)
         self.assertEqual(len(result["heightData"]), 256 * 256)
         self.assertEqual(result["semanticSource"], "unavailable")
@@ -214,6 +219,44 @@ class FixturePredictionTests(unittest.TestCase):
         self.assertEqual(result["geospatial"]["crs"], "EPSG:4326")
         self.assertEqual(result["geospatial"]["bands"], 3)
         self.assertEqual(result["geospatial"]["resolution"], [0.0001, 0.0001])
+        self.assertEqual(result["resultType"], "estimated_ndsm")
+        self.assertEqual(result["calibration"]["status"], "insufficient_ground_evidence")
+
+    def test_calibrated_geotiff_returns_metric_dsm_download(self) -> None:
+        main_module.model_service = CalibratedModelService()
+        with NamedTemporaryFile(suffix=".tif") as raster_file:
+            transform = from_origin(72.8, 19.1, 0.0001, 0.0001)
+            with rasterio.open(
+                raster_file.name,
+                "w",
+                driver="GTiff",
+                width=8,
+                height=6,
+                count=3,
+                dtype="uint8",
+                crs="EPSG:4326",
+                transform=transform,
+            ) as dataset:
+                dataset.write(np.full((3, 6, 8), 120, dtype=np.uint8))
+            raster_file.seek(0)
+            response = self.client.post(
+                "/api/predict",
+                data={"ground_elevation": "120.5"},
+                files={"file": ("CITY.TIF", raster_file.read(), "image/tiff")},
+            )
+
+        self.assertEqual(response.status_code, 200)
+        result = response.json()
+        self.assertEqual(result["resultType"], "metric_dsm")
+        self.assertEqual(result["heightReference"], "absolute")
+        self.assertEqual(result["calibration"]["status"], "calibrated")
+        dsm_response = self.client.get(result["dsmUrl"])
+        self.assertEqual(dsm_response.status_code, 200)
+        with MemoryFile(dsm_response.content).open() as dataset:
+            self.assertEqual(dataset.crs.to_string(), "EPSG:4326")
+            self.assertEqual(dataset.transform, transform)
+            self.assertEqual(dataset.dtypes[0], "float32")
+            np.testing.assert_allclose(dataset.read(1), 120.5, atol=1e-5)
 
     def test_rgba_geotiff_is_accepted(self) -> None:
         with NamedTemporaryFile(suffix=".tiff") as raster_file:
@@ -287,6 +330,14 @@ class TrainedSemanticModelService:
             "height": np.full((8, 10), 12.0, dtype=np.float32),
             "semantic": semantic,
         }
+
+
+class CalibratedModelService:
+    def predict_result(self, image: Image.Image) -> dict[str, np.ndarray]:
+        height, width = image.height, image.width
+        semantic = np.full((7, height, width), -10.0, dtype=np.float32)
+        semantic[1] = 10.0
+        return {"height": np.full((height, width), 4.0, dtype=np.float32), "semantic": semantic}
 
 
 if __name__ == "__main__":
