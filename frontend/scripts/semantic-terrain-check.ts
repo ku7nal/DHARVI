@@ -1,5 +1,22 @@
 import { BUILDING, GROUND, LOW_VEGETATION, OTHERS, ROAD, SEMANTIC_LAYER_DEFINITIONS, SEMANTIC_TERRAIN_CLASSES, TREE, WATER, createSemanticSurfaceGeometry, getSemanticClassColor, getVisibleSemanticClassIds, prepareSemanticTerrain, smoothSemanticClasses } from "../src/semanticTerrain.ts";
 
+function assertHealthyGeometry(geometry: ReturnType<typeof createSemanticSurfaceGeometry>, label: string): void {
+  const positions = geometry.getAttribute("position");
+  const normals = geometry.getAttribute("normal");
+  if ([...positions.array, ...normals.array].some((value) => !Number.isFinite(value))) throw new Error(`${label} geometry contains a non-finite value`);
+  if (Array.from({ length: normals.count }, (_, index) => normals.getY(index)).some((value) => value <= 0)) throw new Error(`${label} geometry has a downward-facing normal`);
+}
+
+function maxCellEdgeHeightDifference(geometry: ReturnType<typeof createSemanticSurfaceGeometry>): number {
+  const positions = geometry.getAttribute("position");
+  let maximum = 0;
+  for (let cell = 0; cell < positions.count / 4; cell += 1) {
+    const firstVertex = cell * 4;
+    for (const nextVertex of [1, 2, 3]) maximum = Math.max(maximum, Math.abs(positions.getY(firstVertex) - positions.getY(firstVertex + nextVertex)));
+  }
+  return maximum;
+}
+
 const classes = Array.from({ length: 16 }, () => GROUND);
 classes[5] = BUILDING;
 classes[1] = WATER;
@@ -33,18 +50,24 @@ const greenSpikeClasses = [TREE, GROUND, GROUND, GROUND];
 const greenSpikeTerrain = prepareSemanticTerrain([90, 0, 0, 0], 2, 90, greenSpikeClasses, 2);
 const greenSpikeGeometry = createSemanticSurfaceGeometry(greenSpikeTerrain.heights, greenSpikeTerrain.classes, 2, TREE, 90, 1);
 if (greenSpikeTerrain.heights[0] > 1 || [...greenSpikeGeometry.getAttribute("position").array].some((value, index) => index % 3 === 1 && value > 0.2)) throw new Error("green semantic spike was not suppressed");
+assertHealthyGeometry(greenSpikeGeometry, "green spike");
 greenSpikeGeometry.dispose();
 
 const isolatedBuilding = Array.from({ length: 16 }, () => GROUND);
 isolatedBuilding[5] = BUILDING;
 const groundGeometry = createSemanticSurfaceGeometry(terrain.heights, isolatedBuilding, 4, GROUND, 90, 1);
 if (groundGeometry.getAttribute("position").count !== 15 * 4) throw new Error("ground geometry lost cells around the building");
-if ((groundGeometry.getAttribute("normal").getY(0) ?? 0) <= 0) throw new Error("semantic surface normal points away from the scene");
+assertHealthyGeometry(groundGeometry, "ground");
+groundGeometry.dispose();
 
 const mixedClasses = [GROUND, ROAD, LOW_VEGETATION, WATER];
 const mixedTerrain = prepareSemanticTerrain([0, 0, 0, 0], 2, 1, mixedClasses, 2);
 const mixedGeometry = [GROUND, ROAD, LOW_VEGETATION, WATER].map((classId) => createSemanticSurfaceGeometry(mixedTerrain.heights, mixedTerrain.classes, 2, classId, 1, 1));
 if (mixedGeometry.some((geometry) => geometry.getAttribute("position").count !== 4)) throw new Error("mixed semantic boundary lost a cell");
+mixedGeometry.forEach((geometry, index) => {
+  assertHealthyGeometry(geometry, `mixed class ${index}`);
+  geometry.dispose();
+});
 
 const sharedEdgeHeights = [0, 10, 20, 30];
 const groundEdge = createSemanticSurfaceGeometry(sharedEdgeHeights, mixedClasses, 2, GROUND, 30, 1).getAttribute("position");
@@ -54,6 +77,13 @@ const stableRoad = createSemanticSurfaceGeometry(sharedEdgeHeights, mixedClasses
 if ([...stableRoad.array].some((value, index) => index % 3 === 1 && Math.abs(value - 0.012) > 0.0001)) throw new Error("road geometry was not held at the terrain baseline");
 const stableWater = createSemanticSurfaceGeometry(sharedEdgeHeights, mixedClasses, 2, WATER, 30, 1, 0).getAttribute("position");
 if ([...stableWater.array].some((value, index) => index % 3 === 1 && Math.abs(value - 0.012) > 0.0001)) throw new Error("water geometry was not held at the terrain baseline");
+
+const reliefTerrain = prepareSemanticTerrain([0, 10, 20, 30], 2, 30, [GROUND, GROUND, GROUND, GROUND], 2);
+const reliefGeometry = createSemanticSurfaceGeometry(reliefTerrain.heights, reliefTerrain.classes, 2, GROUND, 30, 1);
+assertHealthyGeometry(reliefGeometry, "relief");
+if (Math.max(...reliefTerrain.heights) - Math.min(...reliefTerrain.heights) <= 0) throw new Error("broad terrain relief was flattened");
+if (maxCellEdgeHeightDifference(reliefGeometry) > 1.25) throw new Error("local semantic height difference exceeded the smoothing threshold");
+reliefGeometry.dispose();
 
 const expectedPalette = ["#d9d9d9", "#b6c99e", "#83a96f", "#c7cbd1", "#72aee8", "#e8e1d6", "#4f8258"];
 for (const [classId, expectedColor] of expectedPalette.entries()) {
@@ -101,7 +131,7 @@ const totalBudgetCells = budgetGeometries.reduce((total, geometry) => {
   const positions = geometry.getAttribute("position").count;
   const indices = geometry.getIndex()?.count ?? 0;
   if (positions % 4 !== 0 || indices % 6 !== 0) throw new Error("semantic geometry has an invalid tile shape");
-  if ([...geometry.getAttribute("position").array, ...geometry.getAttribute("normal").array].some((value) => !Number.isFinite(value))) throw new Error("semantic geometry is unstable from camera angles");
+  assertHealthyGeometry(geometry, "256x256 semantic");
   geometry.dispose();
   return total + positions / 4;
 }, 0);
