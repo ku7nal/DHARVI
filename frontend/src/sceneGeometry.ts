@@ -1,7 +1,6 @@
 type BuildingLayout = {
   wallBaseY: number;
   wallCenterY: number;
-  roofBaseY: number;
 };
 
 function getBuildingLayout(height: number): BuildingLayout {
@@ -9,7 +8,6 @@ function getBuildingLayout(height: number): BuildingLayout {
   return {
     wallBaseY: 0,
     wallCenterY: safeHeight / 2,
-    roofBaseY: safeHeight,
   };
 }
 

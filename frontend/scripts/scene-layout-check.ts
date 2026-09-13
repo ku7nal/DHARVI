@@ -7,7 +7,6 @@ const fixtureBuilding = getBuildingLayout(4);
 assert.deepEqual(fixtureBuilding, {
   wallBaseY: 0,
   wallCenterY: 2,
-  roofBaseY: 4,
 });
 
 assert.deepEqual(DEFAULT_SCENE_LAYERS, {

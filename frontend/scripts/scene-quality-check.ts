@@ -12,7 +12,7 @@ assert.equal(getBuildingDetailLevel(region(0.8)), "distant");
 const report = validateSceneQuality(Array.from({ length: 256 * 256 }, () => 0), 256, 30, [region(0.1), region(0.8)]);
 assert.equal(report.fullGridCoverage, true);
 assert.equal(report.groundedWalls, true);
-assert.equal(report.sharpRoofs, true);
+assert.equal(report.flatTopBuildings, true);
 assert.equal(report.withinBrowserBudget, true);
 assert.equal(report.detailedBuildings, 1);
 assert.equal(report.distantBuildings, 1);

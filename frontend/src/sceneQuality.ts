@@ -5,7 +5,7 @@ type BuildingDetailLevel = "lod2" | "distant";
 type SceneQualityReport = {
   fullGridCoverage: boolean;
   groundedWalls: boolean;
-  sharpRoofs: boolean;
+  flatTopBuildings: boolean;
   continuousTerrain: boolean;
   estimatedVertices: number;
   withinBrowserBudget: boolean;
@@ -21,8 +21,7 @@ function getBuildingDetailLevel(region: BuildingRegion): BuildingDetailLevel {
 
 function estimateBuildingVertices(region: BuildingRegion, detailLevel: BuildingDetailLevel): number {
   const footprintVertices = detailLevel === "lod2" ? region.footprint?.length ?? 4 : 4;
-  const roofVertices = detailLevel === "lod2" && region.roofType !== "flat" ? footprintVertices + 1 : footprintVertices;
-  return footprintVertices * 2 + roofVertices;
+  return footprintVertices * 2;
 }
 
 function validateSceneQuality(heightData: number[], gridSize: number, maxHeight: number, regions: BuildingRegion[]): SceneQualityReport {
@@ -32,7 +31,7 @@ function validateSceneQuality(heightData: number[], gridSize: number, maxHeight:
   return {
     fullGridCoverage: heightData.length === gridSize * gridSize && gridSize >= 128,
     groundedWalls: regions.every((region) => (region.groundHeight ?? 0) >= 0 && (region.wallHeight ?? region.height) >= 0),
-    sharpRoofs: regions.every((region) => (region.footprint?.length ?? 0) >= 3 && ["flat", "gabled", "hipped", "dome"].includes(region.roofType) && Number.isFinite(region.roofRise ?? 0) && (region.wallHeight ?? region.height) <= region.height + 0.001),
+    flatTopBuildings: regions.every((region) => (region.footprint?.length ?? 0) >= 3 && Number.isFinite(region.wallHeight ?? region.height) && (region.wallHeight ?? region.height) >= 0),
     continuousTerrain: Number.isFinite(maxHeight) && maxHeight >= 0 && heightData.every((value) => Number.isFinite(value)),
     estimatedVertices,
     withinBrowserBudget: estimatedVertices <= 220_000,

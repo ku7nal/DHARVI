@@ -3,7 +3,7 @@ import { ContactShadows, FlyControls, OrbitControls, PerformanceMonitor, Perspec
 import { Suspense, useEffect, useMemo, useRef, useState } from "react";
 import * as THREE from "three";
 import type { BuildingRegion, SceneLayers } from "../types";
-import { createRoofGeometry } from "../roofGeometry";
+import { createBuildingExtrusionGeometry } from "../buildingGeometry";
 import { getBuildingLayout } from "../sceneGeometry";
 import { getBuildingDetailLevel, MAX_TREE_INSTANCES, validateSceneQuality } from "../sceneQuality";
 import { GROUND, LOW_VEGETATION, ROAD, TREE, WATER, createSemanticSurfaceGeometry, prepareSemanticTerrain } from "../semanticTerrain";
@@ -99,46 +99,6 @@ function extractBuildingRegions(heightData: number[], gridSize: number, maxHeigh
     }
   }
   return regions;
-}
-
-function createFootprintGeometry(region: BuildingRegion, verticalScale: number) {
-  if (!region.footprint || region.footprint.length < 3) return null;
-  const shape = new THREE.Shape(region.footprint.map(([x, z]) => new THREE.Vector2(x * WORLD_WIDTH, -z * WORLD_DEPTH)));
-  for (const hole of region.holes ?? []) {
-    if (hole.length >= 3) {
-      shape.holes.push(new THREE.Path(hole.map(([x, z]) => new THREE.Vector2(x * WORLD_WIDTH, -z * WORLD_DEPTH))));
-    }
-  }
-  const geometry = new THREE.ExtrudeGeometry(shape, {
-    bevelEnabled: false,
-    curveSegments: 1,
-    depth: Math.max((region.wallHeight ?? region.height) * verticalScale, 0.05),
-  });
-  geometry.rotateX(-Math.PI / 2);
-  return geometry;
-}
-
-function TexturedRoofMaterial({ inputImageUrl, color }: { inputImageUrl: string; color: string }) {
-  const texture = useTexture(inputImageUrl);
-  return <meshStandardMaterial map={texture} color={color} roughness={0.7} flatShading />;
-}
-
-function createLegacyRoofGeometry(roofType: BuildingRegion["roofType"], width: number, depth: number, roofHeight: number) {
-  if (roofType === "flat") {
-    const geometry = new THREE.BoxGeometry(width, Math.max(roofHeight, 0.05), depth);
-    geometry.translate(0, Math.max(roofHeight, 0.05) / 2, 0);
-    return geometry;
-  }
-  const halfWidth = width / 2;
-  const halfDepth = depth / 2;
-  const y = Math.max(roofHeight, 0.08);
-  const vertices = [-halfWidth, 0, -halfDepth, halfWidth, 0, -halfDepth, halfWidth, 0, halfDepth, -halfWidth, 0, halfDepth, 0, y, -halfDepth * 0.35, 0, y, halfDepth * 0.35];
-  const indices = [0, 1, 4, 1, 2, 5, 2, 3, 5, 3, 0, 4, 0, 4, 5, 0, 5, 3, 1, 2, 5, 1, 5, 4];
-  const geometry = new THREE.BufferGeometry();
-  geometry.setAttribute("position", new THREE.Float32BufferAttribute(vertices, 3));
-  geometry.setIndex(indices);
-  geometry.computeVertexNormals();
-  return geometry;
 }
 
 function TerrainBase() {
@@ -248,7 +208,7 @@ function InspectionPlane({ heightData, gridSize, maxHeight, onInspect }: { heigh
   </mesh>;
 }
 
-function StylizedCity({ heightData, gridSize, maxHeight, exaggeration, buildingRegions, wireframe, inputImageUrl, rgbRoof, semanticData, semanticGridSize, layers }: Omit<ReconstructionViewerProps, "layers"> & { exaggeration: number; wireframe: boolean; rgbRoof: boolean; layers: SceneLayers }) {
+function StylizedCity({ heightData, gridSize, maxHeight, exaggeration, buildingRegions, wireframe, semanticData, semanticGridSize, layers }: Omit<ReconstructionViewerProps, "layers" | "inputImageUrl"> & { exaggeration: number; wireframe: boolean; layers: SceneLayers }) {
   const regions = useMemo(() => buildingRegions?.length ? buildingRegions : extractBuildingRegions(heightData, gridSize, maxHeight), [buildingRegions, gridSize, heightData, maxHeight]);
   const terrain = useMemo(() => prepareSemanticTerrain(heightData, gridSize, maxHeight, semanticData, semanticGridSize), [heightData, gridSize, maxHeight, semanticData, semanticGridSize]);
   const quality = useMemo(() => validateSceneQuality(heightData, gridSize, maxHeight, regions), [heightData, gridSize, maxHeight, regions]);
@@ -263,19 +223,14 @@ function StylizedCity({ heightData, gridSize, maxHeight, exaggeration, buildingR
       const layout = getBuildingLayout(height);
       const width = Math.max(region.width * WORLD_WIDTH, 0.2);
       const depth = Math.max(region.depth * WORLD_DEPTH, 0.2);
-      const footprintGeometry = detailLevel === "lod2" ? createFootprintGeometry(region, verticalScale) : null;
+      const footprintGeometry = detailLevel === "lod2" ? createBuildingExtrusionGeometry(region, verticalScale, WORLD_WIDTH, WORLD_DEPTH) : null;
       if (footprintGeometry) {
-        const roofGeometry = createRoofGeometry(region, verticalScale, WORLD_WIDTH, WORLD_DEPTH);
         const materialColor = wireframe ? "#9b94bd" : index % 3 === 0 ? "#c7cbd1" : "#b6beca";
         const baseY = (region.groundHeight ?? 0) * verticalScale;
-        const wallHeight = (region.wallHeight ?? region.height) * verticalScale;
         return <group key={`${region.centerX}-${region.centerZ}-${index}`} position={[0, baseY, 0]}>
           <mesh geometry={footprintGeometry} castShadow receiveShadow>
             <meshStandardMaterial color={materialColor} roughness={0.77} wireframe={wireframe} flatShading />
           </mesh>
-          {roofGeometry && <mesh geometry={roofGeometry} position={[0, wallHeight, 0]} castShadow>
-            {rgbRoof && !wireframe ? <TexturedRoofMaterial inputImageUrl={inputImageUrl} color="#ffffff" /> : <meshStandardMaterial color={materialColor} roughness={0.7} wireframe={wireframe} flatShading />}
-          </mesh>}
         </group>;
       }
       return <group key={`${region.centerX}-${region.centerZ}-${index}`} position={[region.centerX * WORLD_WIDTH, 0, region.centerZ * WORLD_DEPTH]}>
@@ -283,9 +238,6 @@ function StylizedCity({ heightData, gridSize, maxHeight, exaggeration, buildingR
           <boxGeometry args={[width, height, depth]} />
           <meshStandardMaterial color={wireframe ? "#9b94bd" : index % 3 === 0 ? "#c7cbd1" : "#b6beca"} roughness={0.77} wireframe={wireframe} flatShading />
         </mesh>
-        {!wireframe && <mesh geometry={createLegacyRoofGeometry(region.roofType, width * 0.94, depth * 0.94, region.roofType === "flat" ? 0.08 : Math.min(height * 0.3, 0.8))} position={[0, layout.roofBaseY, 0]} castShadow>
-          <meshStandardMaterial color={region.roofType === "flat" ? "#d8dbe0" : "#c9ced6"} roughness={0.7} flatShading />
-        </mesh>}
       </group>;
     })}
   </group>;
@@ -321,7 +273,7 @@ function SceneContents({ heightData, gridSize, maxHeight, exaggeration, cameraMo
       <ambientLight intensity={1.15} />
       <directionalLight castShadow intensity={2.6} position={[7, 13, 8]} shadow-mapSize={[1024, 1024]} shadow-bias={-0.0002} />
       <directionalLight intensity={0.38} position={[-8, 5, -4]} color="#d7d1ff" />
-      {layers.city && <Suspense fallback={null}><StylizedCity heightData={heightData} gridSize={gridSize} maxHeight={maxHeight} exaggeration={exaggeration} buildingRegions={buildingRegions} wireframe={layers.wireframe} inputImageUrl={inputImageUrl} rgbRoof={layers.rgb} semanticData={semanticData} semanticGridSize={semanticGridSize} layers={layers} /></Suspense>}
+      {layers.city && <Suspense fallback={null}><StylizedCity heightData={heightData} gridSize={gridSize} maxHeight={maxHeight} exaggeration={exaggeration} buildingRegions={buildingRegions} wireframe={layers.wireframe} semanticData={semanticData} semanticGridSize={semanticGridSize} layers={layers} /></Suspense>}
       {layers.city && <ContactShadows position={[0, 0.01, 0]} opacity={0.32} scale={20} blur={1.4} far={5} resolution={256} color="#555064" />}
       <HeightSurface heightData={heightData} gridSize={gridSize} maxHeight={maxHeight} exaggeration={exaggeration} layers={layers} inputImageUrl={inputImageUrl} />
       <SlopeSurface heightData={heightData} gridSize={gridSize} maxHeight={maxHeight} exaggeration={exaggeration} enabled={layers.slope} wireframe={layers.wireframe} />

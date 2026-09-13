@@ -17,5 +17,5 @@ echo "== Model checkpoint =="
 echo "== Backend tests =="
 (cd "$ROOT_DIR/backend" && .venv/bin/python -m unittest discover -s tests -p 'test_*.py')
 echo "== Frontend checks =="
-(cd "$ROOT_DIR/frontend" && npm run typecheck && npm run build && npm run test:scene && npm run test:roof && npm run test:terrain && npm run test:quality)
+(cd "$ROOT_DIR/frontend" && npm run typecheck && npm run build && npm run test:scene && npm run test:buildings && npm run test:terrain && npm run test:quality)
 echo "Deliverable verification passed."
