@@ -33,7 +33,12 @@ function LayerToggle({ label, description, active, onClick }: { label: string; d
 }
 
 function PredictionInspector({ prediction, layers, onToggleLayer }: PredictionInspectorProps) {
-  const semanticAvailable = Boolean(prediction.semanticData?.length && prediction.semanticMapUrl && prediction.semanticClasses?.length);
+  const semanticPayloadAligned = Boolean(
+    prediction.semanticGridSize &&
+    prediction.semanticGridSize === prediction.gridSize &&
+    prediction.semanticData?.length === prediction.semanticGridSize ** 2,
+  );
+  const semanticAvailable = Boolean(prediction.semanticMapUrl && prediction.semanticClasses?.length && semanticPayloadAligned);
   const semanticSourceLabel = prediction.semanticSource === "fixture"
     ? "Fixture semantic labels"
     : prediction.semanticSource === "trained"
@@ -59,15 +64,17 @@ function PredictionInspector({ prediction, layers, onToggleLayer }: PredictionIn
           <span className="status-dot" /> {semanticSourceLabel}
         </div>
         {semanticAvailable ? <>
-          <img className="semantic-preview" src={`${API_BASE}${prediction.semanticMapUrl}`} alt="GAMUS semantic class preview" />
+          <img className="semantic-preview" src={`${API_BASE}${prediction.semanticMapUrl}`} alt={`GAMUS semantic class mask, aligned ${prediction.semanticGridSize} by ${prediction.semanticGridSize} grid`} />
           <div className="semantic-legend">
             {prediction.semanticClasses?.map((semanticClass) => <div key={semanticClass.id} className="semantic-legend-item">
               <span className="semantic-swatch" style={{ backgroundColor: semanticClass.color }} />
               <span>{semanticClass.label}</span>
             </div>)}
           </div>
-          <small className="semantic-note">Aligned {prediction.semanticGridSize} × {prediction.semanticGridSize} class grid.</small>
-        </> : <div className="inspector-note">This result contains height data only. Building and terrain layers use height-derived fallback behavior until semantic labels are available.</div>}
+          <small className="semantic-note">Aligned {prediction.semanticGridSize} × {prediction.semanticGridSize} categorical class mask. Height preview is continuous.</small>
+        </> : <div className="inspector-note">{prediction.semanticData?.length && !semanticPayloadAligned
+          ? "Semantic preview is unavailable because its class grid is not aligned with the scene grid."
+          : "This result contains height data only. Building and terrain layers use height-derived fallback behavior until semantic labels are available."}</div>}
       </InspectorSection>
 
       <InspectorSection title="Layers">
