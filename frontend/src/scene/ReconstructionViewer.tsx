@@ -1,11 +1,11 @@
 import { Canvas } from "@react-three/fiber";
 import { ContactShadows, FlyControls, OrbitControls, PerformanceMonitor, PerspectiveCamera, useTexture } from "@react-three/drei";
-import { Suspense, useEffect, useMemo, useRef, useState } from "react";
+import { Suspense, useMemo, useState } from "react";
 import * as THREE from "three";
 import type { BuildingRegion, SceneLayers, SemanticClass } from "../types";
 import { createBuildingExtrusionGeometry } from "../buildingGeometry";
 import { getBuildingLayout } from "../sceneGeometry";
-import { getBuildingDetailLevel, MAX_TREE_INSTANCES, validateSceneQuality } from "../sceneQuality";
+import { getBuildingDetailLevel, validateSceneQuality } from "../sceneQuality";
 import { BUILDING, GROUND, LOW_VEGETATION, OTHERS, ROAD, TREE, WATER, createSemanticSurfaceGeometry, getSemanticClassColor, prepareSemanticTerrain } from "../semanticTerrain";
 
 type ReconstructionViewerProps = {
@@ -122,42 +122,7 @@ function SemanticTerrain({ terrain, maxHeight, exaggeration, layers, wireframe, 
   const layerDefinitions = [[OTHERS, true], [GROUND, layers.ground], [LOW_VEGETATION, layers.vegetation], [BUILDING, layers.buildings], [WATER, layers.water], [ROAD, layers.roads], [TREE, layers.trees]] as const;
   return <group>{layerDefinitions.map(([classId, enabled]) => enabled && <mesh key={classId} geometry={createSemanticSurfaceGeometry(terrain.heights, terrain.classes, terrain.gridSize, classId, maxHeight, exaggeration)}>
     <meshBasicMaterial color={getSemanticClassColor(classId, semanticClasses)} wireframe={wireframe} />
-  </mesh>)}<TreeLayer terrain={terrain} maxHeight={maxHeight} exaggeration={exaggeration} enabled={layers.trees} semanticClasses={semanticClasses} /></group>;
-}
-
-function TreeLayer({ terrain, maxHeight, exaggeration, enabled, semanticClasses }: { terrain: ReturnType<typeof prepareSemanticTerrain>; maxHeight: number; exaggeration: number; enabled: boolean; semanticClasses?: SemanticClass[] }) {
-  const verticalScale = 3.6 / Math.max(maxHeight, 1) * exaggeration;
-  const instances = useMemo(() => {
-    const trees: Array<[number, number, number, number]> = [];
-    terrain.classes.forEach((classId, index) => {
-      if (classId !== TREE || index % 3 !== 0 || trees.length >= MAX_TREE_INSTANCES) return;
-      const row = Math.floor(index / terrain.gridSize);
-      const column = index % terrain.gridSize;
-      const height = 0.22 + Math.min(0.22, Math.max(0, terrain.heights[index]) / Math.max(maxHeight, 1) * 0.22);
-      trees.push([row, column, height, terrain.heights[index]]);
-    });
-    return trees;
-  }, [maxHeight, terrain]);
-  const mesh = useRef<THREE.InstancedMesh>(null);
-  const treeGeometry = useMemo(() => new THREE.ConeGeometry(0.14, 1, 6), []);
-  const treeMaterial = useMemo(() => new THREE.MeshBasicMaterial({ color: getSemanticClassColor(TREE, semanticClasses) }), [semanticClasses]);
-  useEffect(() => {
-    if (!mesh.current) return;
-    const dummy = new THREE.Object3D();
-    instances.forEach(([row, column, height, terrainHeight], index) => {
-      dummy.position.set(
-        (column / (terrain.gridSize - 1) - 0.5) * WORLD_WIDTH,
-        terrainHeight * verticalScale + height / 2,
-        (row / (terrain.gridSize - 1) - 0.5) * WORLD_DEPTH,
-      );
-      dummy.scale.set(0.72 + height * 0.18, height, 0.72 + height * 0.18);
-      dummy.updateMatrix();
-      mesh.current!.setMatrixAt(index, dummy.matrix);
-    });
-    mesh.current.instanceMatrix.needsUpdate = true;
-  }, [enabled, instances, terrain.gridSize, verticalScale]);
-  if (!enabled) return null;
-  return <instancedMesh ref={mesh} args={[treeGeometry, treeMaterial, instances.length]} />;
+  </mesh>)}</group>;
 }
 
 function createSlopeGeometry(heightData: number[], gridSize: number, maxHeight: number, exaggeration: number) {
