@@ -40,6 +40,11 @@ const mixedTerrain = prepareSemanticTerrain([0, 0, 0, 0], 2, 1, mixedClasses, 2)
 const mixedGeometry = [GROUND, ROAD, LOW_VEGETATION, WATER].map((classId) => createSemanticSurfaceGeometry(mixedTerrain.heights, mixedTerrain.classes, 2, classId, 1, 1));
 if (mixedGeometry.some((geometry) => geometry.getAttribute("position").count !== 4)) throw new Error("mixed semantic boundary lost a cell");
 
+const sharedEdgeHeights = [0, 10, 20, 30];
+const groundEdge = createSemanticSurfaceGeometry(sharedEdgeHeights, mixedClasses, 2, GROUND, 30, 1).getAttribute("position");
+const roadEdge = createSemanticSurfaceGeometry(sharedEdgeHeights, mixedClasses, 2, ROAD, 30, 1).getAttribute("position");
+if (groundEdge.getY(1) !== roadEdge.getY(0) || groundEdge.getY(2) !== roadEdge.getY(3)) throw new Error("semantic boundary heights are not continuous");
+
 const expectedPalette = ["#d9d9d9", "#b6c99e", "#83a96f", "#c7cbd1", "#72aee8", "#e8e1d6", "#4f8258"];
 for (const [classId, expectedColor] of expectedPalette.entries()) {
   if (SEMANTIC_TERRAIN_CLASSES.find(({ id }) => id === classId)?.color !== expectedColor) throw new Error(`semantic palette mismatch for class ${classId}`);

@@ -123,6 +123,11 @@ function createSemanticSurfaceGeometry(terrainHeights: number[], classes: number
   const positions: number[] = [];
   const indices: number[] = [];
   const verticalScale = 3.6 / Math.max(maxHeight, 1) * exaggeration;
+  const heightAtVertex = (row: number, column: number) => {
+    const safeRow = Math.max(0, Math.min(gridSize - 1, row));
+    const safeColumn = Math.max(0, Math.min(gridSize - 1, column));
+    return (terrainHeights[safeRow * gridSize + safeColumn] ?? 0) * verticalScale + 0.012;
+  };
   for (let row = 0; row < gridSize; row += 1) {
     for (let column = 0; column < gridSize; column += 1) {
       const index = row * gridSize + column;
@@ -132,8 +137,12 @@ function createSemanticSurfaceGeometry(terrainHeights: number[], classes: number
       const right = ((column + 1) / gridSize - 0.5) * WORLD_WIDTH;
       const top = (row / gridSize - 0.5) * WORLD_DEPTH;
       const bottom = ((row + 1) / gridSize - 0.5) * WORLD_DEPTH;
-      const height = (terrainHeights[index] ?? 0) * verticalScale + 0.012;
-      positions.push(left, height, bottom, right, height, bottom, right, height, top, left, height, top);
+      positions.push(
+        left, heightAtVertex(row + 1, column), bottom,
+        right, heightAtVertex(row + 1, column + 1), bottom,
+        right, heightAtVertex(row, column + 1), top,
+        left, heightAtVertex(row, column), top,
+      );
       indices.push(base, base + 1, base + 2, base, base + 2, base + 3);
     }
   }
