@@ -93,14 +93,18 @@ type BenchmarkResult = {
   sourceDataset: string;
   split: string;
   referenceStatus: "scaffold_fixture" | "validated";
+  heightReference: "relative" | "metric";
+  landscapeGroup: "urban" | "sparse" | "hilly" | "forested";
+  coverageNote: string;
+  knownLimitations: string[];
   inputImageUrl: string;
   groundTruthUrl: string;
   predictionUrl: string;
   errorMapUrl: string;
-  metrics: { rmse: number; mae: number; correlation: number };
+  metrics: { rmse: number; mae: number; correlation: number; semanticMiou: number; buildingIoU: number; buildingBoundaryF1: number };
   comparison?: {
-    baseline: { rmse: number; mae: number; correlation: number; buildingBoundaryF1: number };
-    improved: { rmse: number; mae: number; correlation: number; buildingBoundaryF1: number };
+    baseline: BenchmarkResult["metrics"];
+    improved: BenchmarkResult["metrics"];
   };
   width: number;
   height: number;

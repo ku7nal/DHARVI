@@ -39,7 +39,7 @@ function App() {
   const [prediction, setPrediction] = useState<PredictionResult | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [layers, setLayers] = useState<SceneLayers>(DEFAULT_SCENE_LAYERS);
-  const [benchmark, setBenchmark] = useState<BenchmarkResult | null>(null);
+  const [benchmarks, setBenchmarks] = useState<BenchmarkResult[]>([]);
   const [benchmarkState, setBenchmarkState] = useState<"idle" | "loading" | "ready" | "error">("idle");
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -60,8 +60,8 @@ function App() {
     fetch("http://localhost:8000/api/benchmarks")
       .then(async (response) => {
         const body = await response.json() as { benchmarks?: BenchmarkResult[]; detail?: string };
-        if (!response.ok || !body.benchmarks?.[0]) throw new Error(body.detail ?? "Benchmark examples could not be loaded.");
-        setBenchmark(body.benchmarks[0]);
+        if (!response.ok || !body.benchmarks?.length) throw new Error(body.detail ?? "Benchmark examples could not be loaded.");
+        setBenchmarks(body.benchmarks);
         setBenchmarkState("ready");
       })
       .catch(() => setBenchmarkState("error"));
@@ -220,7 +220,7 @@ function App() {
               </section>
             )}
 
-            {activeNav === "Examples" && (benchmarkState === "ready" && benchmark ? <BenchmarkWorkspace benchmark={benchmark} /> : <section className="empty-panel"><div className="panel-icon"><Icon name="layers" /></div><h2>{benchmarkState === "error" ? "Benchmark unavailable" : "Loading benchmark examples"}</h2><p>{benchmarkState === "error" ? "Start the backend and try again to load reference comparisons." : "Preparing input, reference, prediction, error map, and accuracy metrics."}</p>{benchmarkState === "error" && <button className="primary-button" onClick={() => setBenchmarkState("idle")}>Try again</button>}</section>)}
+            {activeNav === "Examples" && (benchmarkState === "ready" && benchmarks.length ? <BenchmarkWorkspace benchmarks={benchmarks} /> : <section className="empty-panel"><div className="panel-icon"><Icon name="layers" /></div><h2>{benchmarkState === "error" ? "Benchmark unavailable" : "Loading benchmark examples"}</h2><p>{benchmarkState === "error" ? "Start the backend and try again to load reference comparisons." : "Preparing input, reference, prediction, error map, and accuracy metrics."}</p>{benchmarkState === "error" && <button className="primary-button" onClick={() => setBenchmarkState("idle")}>Try again</button>}</section>)}
             {activeNav === "About" && <section className="empty-panel"><div className="panel-icon"><Icon name="book" /></div><h2>About DepthWizard</h2><p>Explore estimated height above ground from aerial imagery. The first workspace is designed around a fine-tuned DepthAnything V2 model trained on GAMUS.</p></section>}
           </div>
         </div>

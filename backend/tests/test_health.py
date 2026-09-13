@@ -293,14 +293,18 @@ class BenchmarkTests(unittest.TestCase):
         response = self.client.get("/api/benchmarks")
 
         self.assertEqual(response.status_code, 200)
-        benchmark = response.json()["benchmarks"][0]
-        self.assertEqual(benchmark["sourceDataset"], "GAMUS")
-        self.assertEqual(benchmark["referenceStatus"], "scaffold_fixture")
-        for asset_key in ("inputImageUrl", "groundTruthUrl", "predictionUrl", "errorMapUrl"):
-            self.assertEqual(self.client.get(benchmark[asset_key]).status_code, 200)
-        self.assertEqual(set(benchmark["metrics"]), {"rmse", "mae", "correlation"})
-        self.assertEqual(set(benchmark["comparison"]), {"baseline", "improved"})
-        self.assertEqual(set(benchmark["comparison"]["improved"]), {"rmse", "mae", "correlation", "buildingBoundaryF1"})
+        benchmarks = response.json()["benchmarks"]
+        self.assertEqual([item["landscapeGroup"] for item in benchmarks], ["urban", "sparse", "hilly", "forested"])
+        for benchmark in benchmarks:
+            self.assertEqual(benchmark["sourceDataset"], "GAMUS" if benchmark["landscapeGroup"] == "urban" else "Synthetic stress fixture")
+            self.assertEqual(benchmark["referenceStatus"], "scaffold_fixture")
+            self.assertEqual(benchmark["heightReference"], "relative")
+            for asset_key in ("inputImageUrl", "groundTruthUrl", "predictionUrl", "errorMapUrl"):
+                self.assertEqual(self.client.get(benchmark[asset_key]).status_code, 200)
+            expected_metrics = {"rmse", "mae", "correlation", "semanticMiou", "buildingIoU", "buildingBoundaryF1"}
+            self.assertEqual(set(benchmark["metrics"]), expected_metrics)
+            self.assertEqual(set(benchmark["comparison"]), {"baseline", "improved"})
+            self.assertEqual(set(benchmark["comparison"]["improved"]), expected_metrics)
 
     def test_metrics_are_zero_for_identical_arrays_and_safe_for_flat_arrays(self) -> None:
         from app.main import compute_metrics
@@ -308,6 +312,13 @@ class BenchmarkTests(unittest.TestCase):
         metrics = compute_metrics(np.ones((2, 2)), np.ones((2, 2)))
 
         self.assertEqual(metrics, {"rmse": 0.0, "mae": 0.0, "correlation": 0.0})
+
+    def test_semantic_metrics_are_perfect_for_identical_labels(self) -> None:
+        from app.main import _semantic_metrics
+
+        labels = np.array([[0, 1, 3], [3, 5, 6]])
+
+        self.assertEqual(_semantic_metrics(labels, labels), {"semanticMiou": 1.0, "buildingIoU": 1.0, "buildingBoundaryF1": 1.0})
 
 
 class FakeModelService:

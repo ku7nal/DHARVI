@@ -13,7 +13,7 @@ from rasterio.io import MemoryFile
 from app.building_footprints import extract_building_footprints
 from app.geospatial import calibrate_dsm, parse_ground_control_points, write_dsm_geotiff
 from app.model_service import DepthAnythingModelService, ModelUnavailableError
-from app.semantic_contract import SEMANTIC_CLASSES
+from app.semantic_contract import BUILDING_CLASS, CLASS_COUNT, SEMANTIC_CLASSES
 
 MEDIA_DIR = Path(__file__).resolve().parent.parent / "media"
 MEDIA_DIR.mkdir(parents=True, exist_ok=True)
@@ -43,7 +43,7 @@ def health() -> dict[str, str]:
 
 @app.get("/api/benchmarks")
 def benchmarks() -> dict[str, list[dict[str, object]]]:
-    return {"benchmarks": [_write_benchmark_assets()]}
+    return {"benchmarks": [_write_benchmark_assets(group) for group in ("urban", "sparse", "hilly", "forested")]}
 
 
 def _fixture_city() -> Image.Image:
@@ -225,9 +225,61 @@ def compute_building_boundary_f1(predicted: np.ndarray, ground_truth: np.ndarray
     return 2 * precision * recall / (precision + recall) if precision + recall else 0.0
 
 
-def _write_benchmark_assets() -> dict[str, object]:
-    benchmark_id = "gamus-urban-demo"
+def _landscape_fixture(group: str) -> Image.Image:
     image = _fixture_city()
+    draw = ImageDraw.Draw(image)
+    if group == "sparse":
+        draw.rectangle((0, 0, image.width, image.height), fill="#d6dfc4")
+        draw.rectangle((80, 90, 280, 205), fill="#c5cbd0")
+        draw.rectangle((430, 290, 650, 420), fill="#bfc7ce")
+    elif group == "hilly":
+        for row in range(image.height):
+            shade = int(170 + 35 * np.sin(row / image.height * np.pi * 2))
+            draw.line((0, row, image.width, row), fill=(shade, min(210, shade + 20), 155))
+        draw.rectangle((80, 100, 280, 205), fill="#c2c8ce")
+        draw.rectangle((430, 280, 650, 420), fill="#b9c0c8")
+    elif group == "forested":
+        draw.rectangle((0, 0, image.width, image.height), fill="#7f9f72")
+        for x in range(30, image.width, 55):
+            for y in range(35, image.height, 58):
+                draw.ellipse((x - 18, y - 18, x + 18, y + 18), fill="#527b55")
+        draw.rectangle((255, 205, 515, 285), fill="#f2eee3")
+        draw.rectangle((320, 140, 450, 220), fill="#bfc7ce")
+    return image
+
+
+def _semantic_metrics(predicted: np.ndarray, target: np.ndarray) -> dict[str, float]:
+    ious = []
+    for class_id in range(CLASS_COUNT):
+        predicted_class = predicted == class_id
+        target_class = target == class_id
+        union = np.sum(predicted_class | target_class)
+        if union:
+            ious.append(float(np.sum(predicted_class & target_class) / union))
+    predicted_building = predicted == BUILDING_CLASS
+    target_building = target == BUILDING_CLASS
+    intersection = np.sum(predicted_building & target_building)
+    union = np.sum(predicted_building | target_building)
+
+    def boundary(mask: np.ndarray) -> np.ndarray:
+        padded = np.pad(mask, 1, constant_values=False)
+        interior = padded[:-2, 1:-1] & padded[2:, 1:-1] & padded[1:-1, :-2] & padded[1:-1, 2:]
+        return mask & ~interior
+
+    predicted_boundary = boundary(predicted_building)
+    target_boundary = boundary(target_building)
+    boundary_tp = np.sum(predicted_boundary & target_boundary)
+    boundary_denominator = np.sum(predicted_boundary) + np.sum(target_boundary)
+    return {
+        "semanticMiou": float(np.mean(ious)) if ious else 0.0,
+        "buildingIoU": float(intersection / union) if union else 0.0,
+        "buildingBoundaryF1": float(2 * boundary_tp / boundary_denominator) if boundary_denominator else 0.0,
+    }
+
+
+def _write_benchmark_assets(landscape_group: str) -> dict[str, object]:
+    benchmark_id = f"gamus-{landscape_group}-validation"
+    image = _landscape_fixture(landscape_group)
     input_path = MEDIA_DIR / f"{benchmark_id}-input.png"
     reference_path = MEDIA_DIR / f"{benchmark_id}-reference.png"
     prediction_path = MEDIA_DIR / f"{benchmark_id}-prediction.png"
@@ -240,6 +292,11 @@ def _write_benchmark_assets() -> dict[str, object]:
     predicted = np.clip(smoothed * 0.92 + 0.65, 0, 42.7)
     baseline = np.asarray(grayscale, dtype=np.float32) / 255 * 42.7
     error = np.abs(predicted - ground_truth)
+    target_semantic = _fixture_semantic_grid(170)
+    predicted_semantic = np.roll(target_semantic, 1 if landscape_group != "urban" else 0, axis=1)
+    baseline_semantic = np.roll(target_semantic, 2, axis=1)
+    semantic_metrics = _semantic_metrics(predicted_semantic, target_semantic)
+    baseline_semantic_metrics = _semantic_metrics(baseline_semantic, target_semantic)
 
     def save_map(values: np.ndarray, path: Path, scale: float) -> None:
         pixels = np.clip(values / max(scale, 1e-6) * 255, 0, 255).astype(np.uint8)
@@ -252,18 +309,22 @@ def _write_benchmark_assets() -> dict[str, object]:
     baseline_metrics = compute_metrics(baseline, ground_truth)
     return {
         "id": benchmark_id,
-        "name": "GAMUS urban validation example",
-        "sourceDataset": "GAMUS",
+        "name": f"{('GAMUS urban' if landscape_group == 'urban' else f'Synthetic {landscape_group}')} landscape comparison",
+        "landscapeGroup": landscape_group,
+        "sourceDataset": "GAMUS" if landscape_group == "urban" else "Synthetic stress fixture",
         "split": "validation",
         "referenceStatus": "scaffold_fixture",
+        "heightReference": "relative",
+        "coverageNote": "Deterministic scaffold fixture; replace with held-out landscape reference data before presenting as measured validation.",
+        "knownLimitations": ["GAMUS coverage is urban-focused.", "Sparse, hilly, and forested groups are visual stress fixtures, not held-out survey data."],
         "inputImageUrl": f"/media/{input_path.name}",
         "groundTruthUrl": f"/media/{reference_path.name}",
         "predictionUrl": f"/media/{prediction_path.name}",
         "errorMapUrl": f"/media/{error_path.name}",
-        "metrics": {key: round(value, 4) for key, value in metrics.items()},
+        "metrics": {**{key: round(value, 4) for key, value in metrics.items()}, **{key: round(value, 4) for key, value in semantic_metrics.items()}},
         "comparison": {
-            "baseline": {**{key: round(value, 4) for key, value in baseline_metrics.items()}, "buildingBoundaryF1": round(compute_building_boundary_f1(baseline, ground_truth), 4)},
-            "improved": {**{key: round(value, 4) for key, value in metrics.items()}, "buildingBoundaryF1": round(compute_building_boundary_f1(predicted, ground_truth), 4)},
+            "baseline": {**{key: round(value, 4) for key, value in baseline_metrics.items()}, **{key: round(value, 4) for key, value in baseline_semantic_metrics.items()}, "buildingBoundaryF1": round(compute_building_boundary_f1(baseline, ground_truth), 4)},
+            "improved": {**{key: round(value, 4) for key, value in metrics.items()}, **{key: round(value, 4) for key, value in semantic_metrics.items()}},
         },
         "width": image.width,
         "height": image.height,
