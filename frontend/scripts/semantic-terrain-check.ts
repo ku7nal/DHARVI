@@ -1,4 +1,4 @@
-import { BUILDING, GROUND, LOW_VEGETATION, OTHERS, ROAD, SEMANTIC_TERRAIN_CLASSES, TREE, WATER, createSemanticSurfaceGeometry, getSemanticClassColor, prepareSemanticTerrain } from "../src/semanticTerrain.ts";
+import { BUILDING, GROUND, LOW_VEGETATION, OTHERS, ROAD, SEMANTIC_TERRAIN_CLASSES, TREE, WATER, createSemanticSurfaceGeometry, getSemanticClassColor, prepareSemanticTerrain, smoothSemanticClasses } from "../src/semanticTerrain.ts";
 
 const classes = Array.from({ length: 16 }, () => GROUND);
 classes[5] = BUILDING;
@@ -54,6 +54,15 @@ if (getSemanticClassColor(99) !== "#b6c99e") throw new Error("unknown palette cl
 
 const invalidTerrain = prepareSemanticTerrain([0, 0, 0, 0], 2, 1, [99, -1, Number.NaN, GROUND], 2);
 if (invalidTerrain.classes.join(",") !== `${GROUND},${GROUND},${GROUND},${GROUND}`) throw new Error("invalid semantic class was not safely normalized");
+
+const noisyClasses = Array.from({ length: 25 }, () => GROUND);
+noisyClasses[12] = LOW_VEGETATION;
+noisyClasses[0] = ROAD;
+const smoothedClasses = smoothSemanticClasses(noisyClasses, 5);
+if (smoothedClasses[12] !== GROUND || smoothedClasses[0] !== ROAD) throw new Error("non-road speckles were not cleaned without changing roads");
+
+const roadCorridor = Array.from({ length: 25 }, (_, index) => index >= 10 && index < 15 ? ROAD : GROUND);
+if (smoothSemanticClasses(roadCorridor, 5).slice(10, 15).some((classId) => classId !== ROAD)) throw new Error("road corridor was altered by semantic smoothing");
 
 const resizedTerrain = prepareSemanticTerrain(Array.from({ length: 16 }, () => 0), 4, 1, [ROAD, LOW_VEGETATION, LOW_VEGETATION, ROAD], 2);
 if (resizedTerrain.gridSize !== 4 || resizedTerrain.classes.length !== 4 ** 2) throw new Error("semantic data was not aligned to the scene grid");

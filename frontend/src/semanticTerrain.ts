@@ -52,6 +52,40 @@ function regionContainsCell(region: BuildingRegion, x: number, z: number): boole
   return !(region.holes ?? []).some((hole) => hole.length >= 3 && pointInPolygon(x, z, hole));
 }
 
+function smoothSemanticClasses(classes: number[], gridSize: number): number[] {
+  const smoothed = [...classes];
+  const smoothable = new Set([GROUND, LOW_VEGETATION, OTHERS]);
+  const protectedClasses = new Set([BUILDING, WATER, ROAD, TREE]);
+  for (let pass = 0; pass < 2; pass += 1) {
+    const source = [...smoothed];
+    for (let row = 0; row < gridSize; row += 1) {
+      for (let column = 0; column < gridSize; column += 1) {
+        const index = row * gridSize + column;
+        const currentClass = source[index];
+        if (!smoothable.has(currentClass) || protectedClasses.has(currentClass)) continue;
+        const counts = new Map<number, number>();
+        for (let rowDelta = -1; rowDelta <= 1; rowDelta += 1) {
+          for (let columnDelta = -1; columnDelta <= 1; columnDelta += 1) {
+            if (rowDelta === 0 && columnDelta === 0) continue;
+            const nextRow = row + rowDelta;
+            const nextColumn = column + columnDelta;
+            if (nextRow < 0 || nextRow >= gridSize || nextColumn < 0 || nextColumn >= gridSize) continue;
+            const neighbourClass = source[nextRow * gridSize + nextColumn];
+            if (!smoothable.has(neighbourClass)) continue;
+            counts.set(neighbourClass, (counts.get(neighbourClass) ?? 0) + 1);
+          }
+        }
+        const groundCount = counts.get(GROUND) ?? 0;
+        const vegetationCount = counts.get(LOW_VEGETATION) ?? 0;
+        const targetClass = groundCount >= vegetationCount ? GROUND : LOW_VEGETATION;
+        const targetCount = Math.max(groundCount, vegetationCount);
+        if (targetClass !== currentClass && targetCount >= 6) smoothed[index] = targetClass;
+      }
+    }
+  }
+  return smoothed;
+}
+
 function prepareSemanticTerrain(
   heightData: number[],
   gridSize: number,
@@ -67,9 +101,10 @@ function prepareSemanticTerrain(
       && semanticGridSize > 0
       && semanticData.length === semanticGridSize * semanticGridSize,
   );
-  const classes = hasAlignedSemanticData
+  const normalizedClasses = hasAlignedSemanticData
     ? resizeNearest(semanticData!, semanticGridSize!, gridSize).map((value) => value >= OTHERS && value <= TREE ? value : GROUND)
     : Array.from({ length: gridSize * gridSize }, () => GROUND);
+  const classes = smoothSemanticClasses(normalizedClasses, gridSize);
   const safeHeights = heightData.map((value) => Number.isFinite(value) ? Math.max(0, value) : 0);
   const groundHeights = safeHeights.filter((_, index) => classes[index] === GROUND);
   const nonBuildingHeights = safeHeights.filter((_, index) => classes[index] !== BUILDING);
@@ -169,5 +204,5 @@ function getSemanticClassColor(classId: number, semanticClasses?: Array<Pick<Sem
     ?? SEMANTIC_TERRAIN_CLASSES[GROUND].color;
 }
 
-export { BUILDING, GROUND, LOW_VEGETATION, OTHERS, ROAD, SEMANTIC_TERRAIN_CLASSES, TREE, WATER, createSemanticSurfaceGeometry, getSemanticClassColor, prepareSemanticTerrain };
+export { BUILDING, GROUND, LOW_VEGETATION, OTHERS, ROAD, SEMANTIC_TERRAIN_CLASSES, TREE, WATER, createSemanticSurfaceGeometry, getSemanticClassColor, prepareSemanticTerrain, smoothSemanticClasses };
 export type { SemanticTerrain };
