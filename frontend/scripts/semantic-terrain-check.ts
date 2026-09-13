@@ -45,6 +45,22 @@ const groundEdge = createSemanticSurfaceGeometry(sharedEdgeHeights, mixedClasses
 const roadEdge = createSemanticSurfaceGeometry(sharedEdgeHeights, mixedClasses, 2, ROAD, 30, 1).getAttribute("position");
 if (groundEdge.getY(1) !== roadEdge.getY(0) || groundEdge.getY(2) !== roadEdge.getY(3)) throw new Error("semantic boundary heights are not continuous");
 
+const spikeGeometry = createSemanticSurfaceGeometry([0, 90, 0, 0], [GROUND, GROUND, GROUND, GROUND], 2, GROUND, 90, 1);
+const spikePositions = spikeGeometry.getAttribute("position");
+let largestSpikeEdge = 0;
+for (let cell = 0; cell < spikePositions.count / 4; cell += 1) {
+  const firstVertex = cell * 4;
+  for (const nextVertex of [1, 2, 3]) {
+    largestSpikeEdge = Math.max(largestSpikeEdge, Math.abs(spikePositions.getY(firstVertex) - spikePositions.getY(firstVertex + nextVertex)));
+  }
+}
+if (largestSpikeEdge > 0.2) throw new Error("semantic terrain retained a sharp local height spike");
+spikeGeometry.dispose();
+
+const stableRoadGeometry = createSemanticSurfaceGeometry([0, 90, 0, 0], [ROAD, ROAD, ROAD, ROAD], 2, ROAD, 90, 1, 0);
+if ([...stableRoadGeometry.getAttribute("position").array].some((value, index) => index % 3 === 1 && Math.abs(value - 0.012) > 0.0001)) throw new Error("road surface was vertically distorted");
+stableRoadGeometry.dispose();
+
 const expectedPalette = ["#d9d9d9", "#b6c99e", "#83a96f", "#c7cbd1", "#72aee8", "#e8e1d6", "#4f8258"];
 for (const [classId, expectedColor] of expectedPalette.entries()) {
   if (SEMANTIC_TERRAIN_CLASSES.find(({ id }) => id === classId)?.color !== expectedColor) throw new Error(`semantic palette mismatch for class ${classId}`);

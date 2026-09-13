@@ -18,6 +18,7 @@ type SemanticTerrain = {
   heights: number[];
   classes: number[];
   gridSize: number;
+  baseHeight: number;
 };
 
 function resizeNearest(values: number[], sourceSize: number, targetSize: number): number[] {
@@ -35,6 +36,20 @@ function median(values: number[], fallback: number): number {
   if (!values.length) return fallback;
   const sorted = [...values].sort((left, right) => left - right);
   return sorted[Math.floor(sorted.length / 2)];
+}
+
+function balancedMedian(values: number[], fallback: number): number {
+  if (!values.length) return fallback;
+  const sorted = [...values].sort((left, right) => left - right);
+  const middle = Math.floor(sorted.length / 2);
+  return sorted.length % 2 ? sorted[middle] : (sorted[middle - 1] + sorted[middle]) / 2;
+}
+
+function robustVertexMedian(values: number[], fallback: number, maxStep: number): number {
+  if (values.length === 2 && Math.abs(values[0] - values[1]) > maxStep) {
+    return Math.min(values[0], values[1]) + maxStep;
+  }
+  return balancedMedian(values, fallback);
 }
 
 function pointInPolygon(x: number, z: number, polygon: Array<[number, number]>): boolean {
@@ -153,17 +168,65 @@ function prepareSemanticTerrain(
     const region = buildingRegions.find((candidate) => Number.isFinite(candidate.groundHeight) && regionContainsCell(candidate, x, z));
     return region?.groundHeight ?? value;
   });
-  return { heights: groundedBuildingHeights, classes, gridSize };
+  return { heights: groundedBuildingHeights, classes, gridSize, baseHeight };
 }
 
-function createSemanticSurfaceGeometry(terrainHeights: number[], classes: number[], gridSize: number, classId: number, maxHeight: number, exaggeration: number) {
+function createSemanticSurfaceGeometry(terrainHeights: number[], classes: number[], gridSize: number, classId: number, maxHeight: number, exaggeration: number, stableHeight?: number) {
   const positions: number[] = [];
   const indices: number[] = [];
   const verticalScale = 3.6 / Math.max(maxHeight, 1) * exaggeration;
+  const maxStep = Math.max(maxHeight * 0.04, 0.5);
+  const vertexCount = (gridSize + 1) * (gridSize + 1);
+  const stableVertices = new Uint8Array(vertexCount);
+  const rawVertexHeights = Array.from({ length: vertexCount }, (_, vertexIndex) => {
+    const row = Math.floor(vertexIndex / (gridSize + 1));
+    const column = vertexIndex % (gridSize + 1);
+    const values: number[] = [];
+    let touchesStableClass = false;
+    for (const rowDelta of [-1, 0]) {
+      for (const columnDelta of [-1, 0]) {
+        const cellRow = row + rowDelta;
+        const cellColumn = column + columnDelta;
+        if (cellRow < 0 || cellRow >= gridSize || cellColumn < 0 || cellColumn >= gridSize) continue;
+        const cellIndex = cellRow * gridSize + cellColumn;
+        values.push(terrainHeights[cellIndex] ?? 0);
+        touchesStableClass ||= classes[cellIndex] === ROAD || classes[cellIndex] === WATER;
+      }
+    }
+    if (touchesStableClass && Number.isFinite(stableHeight)) {
+      stableVertices[vertexIndex] = 1;
+      return stableHeight!;
+    }
+    return robustVertexMedian(values, 0, maxStep);
+  });
+  const vertexHeights = [...rawVertexHeights];
+  for (let pass = 0; pass < 1; pass += 1) {
+    const source = [...vertexHeights];
+    for (let row = 0; row <= gridSize; row += 1) {
+      for (let column = 0; column <= gridSize; column += 1) {
+        const vertexIndex = row * (gridSize + 1) + column;
+        if (stableVertices[vertexIndex]) continue;
+        const neighbourhood: number[] = [source[vertexIndex]];
+        for (let rowDelta = -1; rowDelta <= 1; rowDelta += 1) {
+          for (let columnDelta = -1; columnDelta <= 1; columnDelta += 1) {
+            if (rowDelta === 0 && columnDelta === 0) continue;
+            const neighbourRow = row + rowDelta;
+            const neighbourColumn = column + columnDelta;
+            if (neighbourRow >= 0 && neighbourRow <= gridSize && neighbourColumn >= 0 && neighbourColumn <= gridSize) {
+              neighbourhood.push(source[neighbourRow * (gridSize + 1) + neighbourColumn]);
+            }
+          }
+        }
+        const localMedian = balancedMedian(neighbourhood, source[vertexIndex]);
+        const boundedDelta = Math.max(-maxStep * 0.25, Math.min(maxStep * 0.25, source[vertexIndex] - localMedian));
+        vertexHeights[vertexIndex] = localMedian + boundedDelta;
+      }
+    }
+  }
   const heightAtVertex = (row: number, column: number) => {
-    const safeRow = Math.max(0, Math.min(gridSize - 1, row));
-    const safeColumn = Math.max(0, Math.min(gridSize - 1, column));
-    return (terrainHeights[safeRow * gridSize + safeColumn] ?? 0) * verticalScale + 0.012;
+    const safeRow = Math.max(0, Math.min(gridSize, row));
+    const safeColumn = Math.max(0, Math.min(gridSize, column));
+    return vertexHeights[safeRow * (gridSize + 1) + safeColumn] * verticalScale + 0.012;
   };
   for (let row = 0; row < gridSize; row += 1) {
     for (let column = 0; column < gridSize; column += 1) {

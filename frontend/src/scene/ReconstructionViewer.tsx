@@ -120,7 +120,7 @@ function distantBuildingRegion(region: BuildingRegion): BuildingRegion {
 
 function SemanticTerrain({ terrain, maxHeight, exaggeration, layers, wireframe, semanticClasses }: { terrain: ReturnType<typeof prepareSemanticTerrain>; maxHeight: number; exaggeration: number; layers: SceneLayers; wireframe: boolean; semanticClasses?: SemanticClass[] }) {
   const visibleClassIds = new Set(getVisibleSemanticClassIds({ buildings: layers.buildings, ground: layers.ground, roads: layers.roads, water: layers.water, vegetation: layers.vegetation, trees: layers.trees }));
-  return <group>{SEMANTIC_LAYER_DEFINITIONS.map(({ classId }) => visibleClassIds.has(classId) && <mesh key={classId} geometry={createSemanticSurfaceGeometry(terrain.heights, terrain.classes, terrain.gridSize, classId, maxHeight, exaggeration)}>
+  return <group>{SEMANTIC_LAYER_DEFINITIONS.map(({ classId }) => visibleClassIds.has(classId) && <mesh key={classId} geometry={createSemanticSurfaceGeometry(terrain.heights, terrain.classes, terrain.gridSize, classId, maxHeight, exaggeration, terrain.baseHeight)}>
     <meshBasicMaterial color={getSemanticClassColor(classId, semanticClasses)} wireframe={wireframe} />
   </mesh>)}</group>;
 }
