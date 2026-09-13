@@ -79,6 +79,7 @@ function PredictionInspector({ prediction, layers, onToggleLayer }: PredictionIn
         <LayerToggle label="Vegetation" description="Low-poly green cover" active={layers.vegetation} onClick={() => onToggleLayer("vegetation")} />
         <LayerToggle label="Trees" description="Bounded tree geometry" active={layers.trees} onClick={() => onToggleLayer("trees")} />
         <LayerToggle label="Estimated nDSM" description="Height surface" active={layers.height} onClick={() => onToggleLayer("height")} />
+        <LayerToggle label="Slope" description="Terrain gradient heatmap" active={layers.slope} onClick={() => onToggleLayer("slope")} />
         <LayerToggle label="RGB relief" description="Optional terrain texture" active={layers.rgb} onClick={() => onToggleLayer("rgb")} />
         <LayerToggle label="Wireframe" description="Mesh structure" active={layers.wireframe} onClick={() => onToggleLayer("wireframe")} />
       </InspectorSection>

@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { getBuildingDetailLevel, validateSceneQuality } from "../src/sceneQuality.ts";
+import { getBuildingDetailLevel, MAX_TREE_INSTANCES, validateSceneQuality } from "../src/sceneQuality.ts";
 import type { BuildingRegion } from "../src/types.ts";
 
 const region = (centerX: number): BuildingRegion => ({
@@ -16,5 +16,6 @@ assert.equal(report.sharpRoofs, true);
 assert.equal(report.withinBrowserBudget, true);
 assert.equal(report.detailedBuildings, 1);
 assert.equal(report.distantBuildings, 1);
+assert.equal(MAX_TREE_INSTANCES, 512);
 
 console.log("scene quality fixture passed");

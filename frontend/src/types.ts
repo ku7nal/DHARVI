@@ -80,11 +80,12 @@ type SceneLayers = {
   vegetation: boolean;
   trees: boolean;
   height: boolean;
+  slope: boolean;
   rgb: boolean;
   wireframe: boolean;
 };
 
-const DEFAULT_SCENE_LAYERS: SceneLayers = { city: true, buildings: true, ground: true, roads: true, water: true, vegetation: true, trees: true, height: false, rgb: false, wireframe: false };
+const DEFAULT_SCENE_LAYERS: SceneLayers = { city: true, buildings: true, ground: true, roads: true, water: true, vegetation: true, trees: false, height: false, slope: false, rgb: false, wireframe: false };
 
 type BenchmarkResult = {
   id: string;

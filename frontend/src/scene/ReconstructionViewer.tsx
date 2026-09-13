@@ -1,11 +1,11 @@
 import { Canvas } from "@react-three/fiber";
-import { ContactShadows, OrbitControls, PerspectiveCamera, useTexture } from "@react-three/drei";
-import { Suspense, useMemo, useState, type ReactElement } from "react";
+import { ContactShadows, FlyControls, OrbitControls, PerformanceMonitor, PerspectiveCamera, useTexture } from "@react-three/drei";
+import { Suspense, useEffect, useMemo, useRef, useState } from "react";
 import * as THREE from "three";
 import type { BuildingRegion, SceneLayers } from "../types";
 import { createRoofGeometry } from "../roofGeometry";
 import { getBuildingLayout } from "../sceneGeometry";
-import { getBuildingDetailLevel, validateSceneQuality } from "../sceneQuality";
+import { getBuildingDetailLevel, MAX_TREE_INSTANCES, validateSceneQuality } from "../sceneQuality";
 import { GROUND, LOW_VEGETATION, ROAD, TREE, WATER, createSemanticSurfaceGeometry, prepareSemanticTerrain } from "../semanticTerrain";
 
 type ReconstructionViewerProps = {
@@ -19,7 +19,7 @@ type ReconstructionViewerProps = {
   semanticGridSize?: number | null;
 };
 
-type CameraMode = "isometric" | "top";
+type CameraMode = "isometric" | "top" | "fly";
 
 const WORLD_WIDTH = 15;
 const WORLD_DEPTH = 11;
@@ -165,21 +165,87 @@ function SemanticTerrain({ terrain, maxHeight, exaggeration, layers, wireframe }
 }
 
 function TreeLayer({ terrain, maxHeight, exaggeration, enabled }: { terrain: ReturnType<typeof prepareSemanticTerrain>; maxHeight: number; exaggeration: number; enabled: boolean }) {
-  if (!enabled) return null;
   const verticalScale = 3.6 / Math.max(maxHeight, 1) * exaggeration;
-  const trees: ReactElement[] = [];
-  terrain.classes.forEach((classId, index) => {
-    if (classId !== TREE || index % 3 !== 0) return;
-    const row = Math.floor(index / terrain.gridSize);
-    const column = index % terrain.gridSize;
-    const height = 0.22 + Math.min(0.22, Math.max(0, terrain.heights[index]) / Math.max(maxHeight, 1) * 0.22);
-    const radius = 0.1 + height * 0.14;
-    trees.push(<mesh key={index} position={[(column / (terrain.gridSize - 1) - 0.5) * WORLD_WIDTH, terrain.heights[index] * verticalScale + height / 2, (row / (terrain.gridSize - 1) - 0.5) * WORLD_DEPTH] as [number, number, number]} castShadow>
-      <coneGeometry args={[radius, height, 6]} />
-      <meshStandardMaterial color="#4f8258" roughness={0.95} flatShading />
-    </mesh>);
-  });
-  return <group>{trees}</group>;
+  const instances = useMemo(() => {
+    const trees: Array<[number, number, number, number]> = [];
+    terrain.classes.forEach((classId, index) => {
+      if (classId !== TREE || index % 3 !== 0 || trees.length >= MAX_TREE_INSTANCES) return;
+      const row = Math.floor(index / terrain.gridSize);
+      const column = index % terrain.gridSize;
+      const height = 0.22 + Math.min(0.22, Math.max(0, terrain.heights[index]) / Math.max(maxHeight, 1) * 0.22);
+      trees.push([row, column, height, terrain.heights[index]]);
+    });
+    return trees;
+  }, [maxHeight, terrain]);
+  const mesh = useRef<THREE.InstancedMesh>(null);
+  const treeGeometry = useMemo(() => new THREE.ConeGeometry(0.14, 1, 6), []);
+  const treeMaterial = useMemo(() => new THREE.MeshStandardMaterial({ color: "#4f8258", roughness: 0.95, flatShading: true }), []);
+  useEffect(() => {
+    if (!mesh.current) return;
+    const dummy = new THREE.Object3D();
+    instances.forEach(([row, column, height, terrainHeight], index) => {
+      dummy.position.set(
+        (column / (terrain.gridSize - 1) - 0.5) * WORLD_WIDTH,
+        terrainHeight * verticalScale + height / 2,
+        (row / (terrain.gridSize - 1) - 0.5) * WORLD_DEPTH,
+      );
+      dummy.scale.set(0.72 + height * 0.18, height, 0.72 + height * 0.18);
+      dummy.updateMatrix();
+      mesh.current!.setMatrixAt(index, dummy.matrix);
+    });
+    mesh.current.instanceMatrix.needsUpdate = true;
+  }, [enabled, instances, terrain.gridSize, verticalScale]);
+  if (!enabled) return null;
+  return <instancedMesh ref={mesh} args={[treeGeometry, treeMaterial, instances.length]} castShadow receiveShadow />;
+}
+
+function createSlopeGeometry(heightData: number[], gridSize: number, maxHeight: number, exaggeration: number) {
+  const geometry = createSurfaceGeometry(heightData, gridSize, maxHeight, exaggeration);
+  const colors = new Float32Array(geometry.attributes.position.count * 3);
+  const safeMax = Math.max(maxHeight, 1);
+  for (let row = 0; row < gridSize; row += 1) {
+    for (let column = 0; column < gridSize; column += 1) {
+      const index = row * gridSize + column;
+      const left = heightData[row * gridSize + Math.max(0, column - 1)] ?? 0;
+      const right = heightData[row * gridSize + Math.min(gridSize - 1, column + 1)] ?? 0;
+      const up = heightData[Math.max(0, row - 1) * gridSize + column] ?? 0;
+      const down = heightData[Math.min(gridSize - 1, row + 1) * gridSize + column] ?? 0;
+      const slope = Math.min(1, calculateSlopeDegrees(heightData, gridSize, maxHeight, exaggeration, row, column) / 60);
+      const color = new THREE.Color().setHSL(0.58 - slope * 0.58, 0.78, 0.52);
+      colors[index * 3] = color.r;
+      colors[index * 3 + 1] = color.g;
+      colors[index * 3 + 2] = color.b;
+    }
+  }
+  geometry.setAttribute("color", new THREE.BufferAttribute(colors, 3));
+  return geometry;
+}
+
+function calculateSlopeDegrees(heightData: number[], gridSize: number, maxHeight: number, exaggeration: number, row: number, column: number) {
+  const left = heightData[row * gridSize + Math.max(0, column - 1)] ?? 0;
+  const right = heightData[row * gridSize + Math.min(gridSize - 1, column + 1)] ?? 0;
+  const up = heightData[Math.max(0, row - 1) * gridSize + column] ?? 0;
+  const down = heightData[Math.min(gridSize - 1, row + 1) * gridSize + column] ?? 0;
+  const verticalScale = 3.6 / Math.max(maxHeight, 1) * exaggeration;
+  const horizontalX = WORLD_WIDTH / Math.max(gridSize - 1, 1);
+  const horizontalZ = WORLD_DEPTH / Math.max(gridSize - 1, 1);
+  return Math.atan(Math.hypot((right - left) * verticalScale / Math.max(horizontalX * 2, 0.001), (down - up) * verticalScale / Math.max(horizontalZ * 2, 0.001))) * 180 / Math.PI;
+}
+
+function inspectHeight(heightData: number[], gridSize: number, maxHeight: number, exaggeration: number, point: THREE.Vector3) {
+  const column = Math.max(0, Math.min(gridSize - 1, Math.round((point.x / WORLD_WIDTH + 0.5) * (gridSize - 1))));
+  const row = Math.max(0, Math.min(gridSize - 1, Math.round((point.z / WORLD_DEPTH + 0.5) * (gridSize - 1))));
+  const index = row * gridSize + column;
+  const height = heightData[index] ?? 0;
+  const slope = calculateSlopeDegrees(heightData, gridSize, maxHeight, exaggeration, row, column);
+  return { height, slope };
+}
+
+function InspectionPlane({ heightData, gridSize, maxHeight, onInspect }: { heightData: number[]; gridSize: number; maxHeight: number; onInspect: (point: THREE.Vector3) => void }) {
+  return <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0.02, 0]} onPointerMove={(event) => onInspect(event.point)}>
+    <planeGeometry args={[WORLD_WIDTH, WORLD_DEPTH]} />
+    <meshBasicMaterial transparent opacity={0} depthWrite={false} />
+  </mesh>;
 }
 
 function StylizedCity({ heightData, gridSize, maxHeight, exaggeration, buildingRegions, wireframe, inputImageUrl, rgbRoof, semanticData, semanticGridSize, layers }: Omit<ReconstructionViewerProps, "layers"> & { exaggeration: number; wireframe: boolean; rgbRoof: boolean; layers: SceneLayers }) {
@@ -191,12 +257,13 @@ function StylizedCity({ heightData, gridSize, maxHeight, exaggeration, buildingR
   return <group userData={{ sceneQuality: quality }}>
     {semanticData?.length ? <SemanticTerrain terrain={terrain} maxHeight={maxHeight} exaggeration={exaggeration} layers={layers} wireframe={wireframe} /> : <TerrainBase />}
     {layers.buildings && regions.map((sourceRegion, index) => {
-      const region = getBuildingDetailLevel(sourceRegion) === "distant" ? distantBuildingRegion(sourceRegion) : sourceRegion;
+      const detailLevel = getBuildingDetailLevel(sourceRegion);
+      const region = detailLevel === "distant" ? distantBuildingRegion(sourceRegion) : sourceRegion;
       const height = region.height * verticalScale;
       const layout = getBuildingLayout(height);
       const width = Math.max(region.width * WORLD_WIDTH, 0.2);
       const depth = Math.max(region.depth * WORLD_DEPTH, 0.2);
-      const footprintGeometry = createFootprintGeometry(region, verticalScale);
+      const footprintGeometry = detailLevel === "lod2" ? createFootprintGeometry(region, verticalScale) : null;
       if (footprintGeometry) {
         const roofGeometry = createRoofGeometry(region, verticalScale, WORLD_WIDTH, WORLD_DEPTH);
         const materialColor = wireframe ? "#9b94bd" : index % 3 === 0 ? "#c7cbd1" : "#b6beca";
@@ -232,6 +299,12 @@ function HeightSurface({ heightData, gridSize, maxHeight, exaggeration, layers }
   return <mesh geometry={geometry} castShadow receiveShadow><meshStandardMaterial color={color} roughness={0.82} metalness={0.02} wireframe={layers.wireframe} /></mesh>;
 }
 
+function SlopeSurface({ heightData, gridSize, maxHeight, exaggeration, enabled, wireframe }: { heightData: number[]; gridSize: number; maxHeight: number; exaggeration: number; enabled: boolean; wireframe: boolean }) {
+  const geometry = useMemo(() => enabled ? createSlopeGeometry(heightData, gridSize, maxHeight, exaggeration) : null, [enabled, exaggeration, gridSize, heightData, maxHeight]);
+  if (!geometry) return null;
+  return <mesh geometry={geometry} position={[0, 0.012, 0]} receiveShadow><meshStandardMaterial vertexColors polygonOffset polygonOffsetFactor={-1} polygonOffsetUnits={-1} wireframe={wireframe} roughness={0.88} /></mesh>;
+}
+
 function RgbSurface({ heightData, gridSize, maxHeight, exaggeration, inputImageUrl }: ReconstructionViewerProps & { exaggeration: number }) {
   const texture = useTexture(inputImageUrl);
   const geometry = useMemo(() => createSurfaceGeometry(heightData, gridSize, maxHeight, exaggeration), [exaggeration, gridSize, heightData, maxHeight]);
@@ -239,45 +312,51 @@ function RgbSurface({ heightData, gridSize, maxHeight, exaggeration, inputImageU
   return <mesh geometry={geometry} position={[0, 0.015, 0]}><meshBasicMaterial map={texture} polygonOffset polygonOffsetFactor={-1} polygonOffsetUnits={-1} /></mesh>;
 }
 
-function SceneContents({ heightData, gridSize, maxHeight, exaggeration, cameraMode, layers, inputImageUrl, buildingRegions, semanticData, semanticGridSize }: ReconstructionViewerProps & { exaggeration: number; cameraMode: CameraMode }) {
-  const cameraPosition: [number, number, number] = cameraMode === "isometric" ? [12, 11, 14] : [0, 18, 0.01];
+function SceneContents({ heightData, gridSize, maxHeight, exaggeration, cameraMode, layers, inputImageUrl, buildingRegions, semanticData, semanticGridSize, onInspect }: ReconstructionViewerProps & { exaggeration: number; cameraMode: CameraMode; onInspect: (point: THREE.Vector3) => void }) {
+  const cameraPosition: [number, number, number] = cameraMode === "isometric" ? [12, 11, 14] : cameraMode === "top" ? [0, 18, 0.01] : [8, 5, 8];
 
   return (
     <>
       <color attach="background" args={["#f0eff7"]} />
       <ambientLight intensity={1.15} />
-      <directionalLight castShadow intensity={2.6} position={[7, 13, 8]} shadow-mapSize={[2048, 2048]} shadow-bias={-0.0002} />
+      <directionalLight castShadow intensity={2.6} position={[7, 13, 8]} shadow-mapSize={[1024, 1024]} shadow-bias={-0.0002} />
       <directionalLight intensity={0.38} position={[-8, 5, -4]} color="#d7d1ff" />
       {layers.city && <Suspense fallback={null}><StylizedCity heightData={heightData} gridSize={gridSize} maxHeight={maxHeight} exaggeration={exaggeration} buildingRegions={buildingRegions} wireframe={layers.wireframe} inputImageUrl={inputImageUrl} rgbRoof={layers.rgb} semanticData={semanticData} semanticGridSize={semanticGridSize} layers={layers} /></Suspense>}
-      {layers.city && <ContactShadows position={[0, 0.01, 0]} opacity={0.32} scale={20} blur={1.4} far={5} resolution={512} color="#555064" />}
+      {layers.city && <ContactShadows position={[0, 0.01, 0]} opacity={0.32} scale={20} blur={1.4} far={5} resolution={256} color="#555064" />}
       <HeightSurface heightData={heightData} gridSize={gridSize} maxHeight={maxHeight} exaggeration={exaggeration} layers={layers} inputImageUrl={inputImageUrl} />
+      <SlopeSurface heightData={heightData} gridSize={gridSize} maxHeight={maxHeight} exaggeration={exaggeration} enabled={layers.slope} wireframe={layers.wireframe} />
       {layers.rgb && <Suspense fallback={null}><RgbSurface heightData={heightData} gridSize={gridSize} maxHeight={maxHeight} exaggeration={exaggeration} layers={layers} inputImageUrl={inputImageUrl} /></Suspense>}
+      <InspectionPlane heightData={heightData} gridSize={gridSize} maxHeight={maxHeight} onInspect={onInspect} />
       <gridHelper args={[22, 22, "#d5d1e4", "#e5e3ed"]} position={[0, -0.04, 0]} />
-      <OrbitControls makeDefault target={[0, 0.8, 0]} enableDamping dampingFactor={0.08} minDistance={5} maxDistance={28} maxPolarAngle={Math.PI * 0.48} />
+      {cameraMode === "fly" ? <FlyControls makeDefault movementSpeed={8} rollSpeed={0.35} dragToLook /> : <OrbitControls makeDefault target={[0, 0.8, 0]} enableDamping dampingFactor={0.08} minDistance={5} maxDistance={28} maxPolarAngle={Math.PI * 0.48} />}
       <PerspectiveCamera makeDefault position={cameraPosition} fov={36} near={0.1} far={100} />
     </>
   );
 }
 
 function ReconstructionViewer({ heightData, gridSize, maxHeight, layers, inputImageUrl, buildingRegions, semanticData, semanticGridSize }: ReconstructionViewerProps) {
-  const [cameraMode, setCameraMode] = useState<CameraMode>("isometric");
+  const [cameraMode, setCameraMode] = useState<CameraMode | "fly">("isometric");
   const [exaggeration, setExaggeration] = useState(1);
   const [resetKey, setResetKey] = useState(0);
+  const [inspection, setInspection] = useState<{ height: number; slope: number } | null>(null);
+  const [renderDpr, setRenderDpr] = useState(1.5);
 
   return (
     <div className="reconstruction-viewer">
-      <Canvas key={`${cameraMode}-${resetKey}`} shadows dpr={[1, 2]} camera={{ position: [12, 11, 14], fov: 36 }}>
-        <SceneContents heightData={heightData} gridSize={gridSize} maxHeight={maxHeight} exaggeration={exaggeration} cameraMode={cameraMode} layers={layers} inputImageUrl={inputImageUrl} buildingRegions={buildingRegions} semanticData={semanticData} semanticGridSize={semanticGridSize} />
+      <Canvas key={`${cameraMode}-${resetKey}`} shadows dpr={[1, renderDpr]} camera={{ position: [12, 11, 14], fov: 36 }}>
+        <PerformanceMonitor onDecline={() => setRenderDpr(1)} onIncline={() => setRenderDpr(1.5)} />
+        <SceneContents heightData={heightData} gridSize={gridSize} maxHeight={maxHeight} exaggeration={exaggeration} cameraMode={cameraMode} layers={layers} inputImageUrl={inputImageUrl} buildingRegions={buildingRegions} semanticData={semanticData} semanticGridSize={semanticGridSize} onInspect={(point) => setInspection(inspectHeight(heightData, gridSize, maxHeight, exaggeration, point))} />
       </Canvas>
       <div className="scene-toolbar" aria-label="Scene controls">
         <button className={cameraMode === "isometric" ? "selected" : ""} onClick={() => setCameraMode("isometric")}>Isometric</button>
         <button className={cameraMode === "top" ? "selected" : ""} onClick={() => setCameraMode("top")}>Top</button>
+        <button className={cameraMode === "fly" ? "selected" : ""} onClick={() => setCameraMode("fly")}>Fly</button>
         <button onClick={() => setResetKey((key) => key + 1)}>Reset view</button>
         <label className="exaggeration-control">
           <span>Height {exaggeration.toFixed(1)}×</span>
           <input aria-label="Height exaggeration" type="range" min="1" max="3" step="0.1" value={exaggeration} onChange={(event) => setExaggeration(Number(event.target.value))} />
         </label>
-        <span className="scene-quality-label">256² terrain · adaptive LoD2</span>
+        <span className="scene-quality-label">{inspection ? `Height ${inspection.height.toFixed(1)} m · slope ${inspection.slope.toFixed(1)}°` : `Move over terrain to inspect height and slope · DPR ${renderDpr.toFixed(1)}`}</span>
       </div>
     </div>
   );

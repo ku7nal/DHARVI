@@ -13,6 +13,8 @@ type SceneQualityReport = {
   distantBuildings: number;
 };
 
+const MAX_TREE_INSTANCES = 512;
+
 function getBuildingDetailLevel(region: BuildingRegion): BuildingDetailLevel {
   return Math.hypot(region.centerX, region.centerZ) <= 0.42 ? "lod2" : "distant";
 }
@@ -39,5 +41,5 @@ function validateSceneQuality(heightData: number[], gridSize: number, maxHeight:
   };
 }
 
-export { getBuildingDetailLevel, validateSceneQuality };
+export { getBuildingDetailLevel, validateSceneQuality, MAX_TREE_INSTANCES };
 export type { BuildingDetailLevel, SceneQualityReport };
