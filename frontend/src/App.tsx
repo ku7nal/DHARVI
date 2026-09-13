@@ -230,20 +230,7 @@ function App() {
             )}
 
             {activeNav === "Examples" && (benchmarkState === "ready" && benchmarks.length ? <BenchmarkWorkspace benchmarks={benchmarks} /> : <section className="empty-panel"><div className="panel-icon"><Icon name="layers" /></div><h2>{benchmarkState === "error" ? "Benchmark unavailable" : "Loading benchmark examples"}</h2><p>{benchmarkState === "error" ? "Start the backend and try again to load reference comparisons." : "Preparing input, reference, prediction, error map, and accuracy metrics."}</p>{benchmarkState === "error" && <button className="primary-button" onClick={() => setBenchmarkState("idle")}>Try again</button>}</section>)}
-            {activeNav === "About" && <section className="about-panel" aria-label="About DepthWizard">
-              <div className="about-intro">
-                <div className="panel-icon"><Icon name="book" /></div>
-                <p className="eyebrow">The DepthWizard approach</p>
-                <h2>From one aerial image to a clearer view of the world.</h2>
-                <p>DepthWizard turns RGB imagery into estimated height-above-ground models and explorable stylized scenes. It is built to make model output legible without presenting a prediction as a survey.</p>
-              </div>
-              <div className="about-grid">
-                <article className="about-card about-card-accent"><span className="about-card-kicker">Model</span><h3>DepthAnything V2</h3><p>A fine-tuned small model produces non-negative estimated nDSM values in meters for supported aerial imagery.</p></article>
-                <article className="about-card"><span className="about-card-kicker">Training context</span><h3>GAMUS urban data</h3><p>The model is tuned around GAMUS imagery, so dense urban scenes are its clearest expected use case.</p></article>
-                <article className="about-card"><span className="about-card-kicker">Scientific honesty</span><h3>Estimated, not absolute</h3><p>Arbitrary uploads show diagnostics and height ranges. Accuracy metrics appear only when a reference-backed benchmark is available.</p></article>
-              </div>
-              <div className="about-note"><span className="pill-dot online" /> Forested scenes may represent canopy height more reliably than bare-ground elevation from a single RGB image.</div>
-            </section>}
+            {activeNav === "About" && <section className="empty-panel"><div className="panel-icon"><Icon name="book" /></div><h2>About DepthWizard</h2><p>Explore estimated height above ground from aerial imagery. The first workspace is designed around a fine-tuned DepthAnything V2 model trained on GAMUS.</p></section>}
           </div>
         </div>
       </section>
