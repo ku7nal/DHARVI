@@ -18,6 +18,7 @@ const isolatedBuilding = Array.from({ length: 16 }, () => GROUND);
 isolatedBuilding[5] = BUILDING;
 const groundGeometry = createSemanticSurfaceGeometry(terrain.heights, isolatedBuilding, 4, GROUND, 90, 1);
 if (groundGeometry.getAttribute("position").count !== 15 * 4) throw new Error("ground geometry lost cells around the building");
+if ((groundGeometry.getAttribute("normal").getY(0) ?? 0) <= 0) throw new Error("semantic surface normal points away from the scene");
 
 const mixedClasses = [GROUND, ROAD, LOW_VEGETATION, WATER];
 const mixedTerrain = prepareSemanticTerrain([0, 0, 0, 0], 2, 1, mixedClasses, 2);

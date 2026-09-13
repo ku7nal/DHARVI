@@ -106,7 +106,7 @@ function createSemanticSurfaceGeometry(terrainHeights: number[], classes: number
       const top = (row / gridSize - 0.5) * WORLD_DEPTH;
       const bottom = ((row + 1) / gridSize - 0.5) * WORLD_DEPTH;
       const height = (terrainHeights[index] ?? 0) * verticalScale + 0.012;
-      positions.push(left, height, top, right, height, top, right, height, bottom, left, height, bottom);
+      positions.push(left, height, bottom, right, height, bottom, right, height, top, left, height, top);
       indices.push(base, base + 1, base + 2, base, base + 2, base + 3);
     }
   }
