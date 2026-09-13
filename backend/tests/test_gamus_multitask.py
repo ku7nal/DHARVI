@@ -16,9 +16,15 @@ from training.gamus_multitask import (
     reconstruction_metrics,
     split_by_group,
 )
+from app.semantic_contract import BUILDING_CLASS, CLASS_NAMES
 
 
 class GamusDataTests(unittest.TestCase):
+    def test_official_gamus_taxonomy_is_seven_classes_with_buildings_at_three(self) -> None:
+        self.assertEqual(CLASS_NAMES, ("others", "ground", "low_vegetation", "building", "water", "road", "tree"))
+        self.assertEqual(CLASS_COUNT, 7)
+        self.assertEqual(BUILDING_CLASS, 3)
+
     def _write_sample(self, root: Path, group: str, name: str, size: tuple[int, int] = (8, 6)) -> None:
         for directory in ("images", "heights", "classes"):
             (root / directory / group).mkdir(parents=True, exist_ok=True)
@@ -63,6 +69,44 @@ class GamusDataTests(unittest.TestCase):
 
 
 class GamusMetricTests(unittest.TestCase):
+    def test_kaggle_metric_report_contains_height_semantic_and_boundary_scores(self) -> None:
+        import torch
+        from types import SimpleNamespace
+
+        from training.kaggle_gamus_train import evaluate_loader
+
+        class PerfectModel:
+            def eval(self):
+                return self
+
+            def __call__(self, image):
+                batch, _, height, width = image.shape
+                classes = torch.full((batch, height, width), BUILDING_CLASS, dtype=torch.long)
+                semantic = torch.full((batch, CLASS_COUNT, height, width), -10.0)
+                semantic.scatter_(1, classes[:, None], 10.0)
+                boundary = torch.full((batch, 1, height, width), 10.0)
+                return {
+                    "height": torch.ones((batch, 1, height, width)),
+                    "semantic": semantic,
+                    "boundary": boundary,
+                }
+
+        batch = {
+            "image": torch.zeros((1, 3, 2, 2)),
+            "height": torch.ones((1, 1, 2, 2)),
+            "classes": torch.full((1, 2, 2), BUILDING_CLASS, dtype=torch.long),
+            "valid": torch.ones((1, 1, 2, 2), dtype=torch.bool),
+            "boundary": torch.ones((1, 1, 2, 2)),
+        }
+        metrics = evaluate_loader(PerfectModel(), [batch], torch.device("cpu"))
+
+        self.assertEqual(metrics["height_rmse"], 0.0)
+        self.assertEqual(metrics["height_mae"], 0.0)
+        self.assertEqual(metrics["height_correlation"], 0.0)
+        self.assertEqual(metrics["building_iou"], 1.0)
+        self.assertEqual(metrics["building_boundary_f1"], 1.0)
+        self.assertEqual(metrics["per_class_iou"]["building"], 1.0)
+
     def test_multitask_model_exposes_height_and_semantic_heads(self) -> None:
         import torch
         import torch.nn as nn
@@ -88,12 +132,12 @@ class GamusMetricTests(unittest.TestCase):
         import torch
 
         target_height = torch.ones((1, 1, 4, 4))
-        target_classes = torch.full((1, 4, 4), 2, dtype=torch.long)
+        target_classes = torch.full((1, 4, 4), BUILDING_CLASS, dtype=torch.long)
         outputs = {
             "height": target_height.clone(),
             "semantic": torch.zeros((1, CLASS_COUNT, 4, 4)),
         }
-        outputs["semantic"][:, 2] = 4
+        outputs["semantic"][:, BUILDING_CLASS] = 4
         targets = {
             "height": target_height,
             "classes": target_classes,
@@ -105,8 +149,8 @@ class GamusMetricTests(unittest.TestCase):
         metrics = reconstruction_metrics(
             np.ones((4, 4)),
             np.ones((4, 4)),
-            np.concatenate([np.zeros((2, 4, 4)), np.full((1, 4, 4), 4), np.zeros((CLASS_COUNT - 3, 4, 4))]),
-            np.full((4, 4), 2, dtype=np.int64),
+            np.concatenate([np.zeros((3, 4, 4)), np.full((1, 4, 4), 4), np.zeros((CLASS_COUNT - 4, 4, 4))]),
+            np.full((4, 4), BUILDING_CLASS, dtype=np.int64),
             np.ones((4, 4), dtype=bool),
         )
         self.assertEqual(metrics["height_rmse"], 0.0)

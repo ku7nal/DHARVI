@@ -63,7 +63,7 @@ class FixturePredictionTests(unittest.TestCase):
         self.assertEqual(len(result["heightData"]), 256 * 256)
         self.assertEqual(result["semanticSource"], "unavailable")
         self.assertIsNone(result["semanticData"])
-        self.assertEqual({item["id"] for item in result["semanticClasses"]}, set(range(6)))
+        self.assertEqual({item["id"] for item in result["semanticClasses"]}, set(range(7)))
         self.assertEqual(result["predictionWidth"], 518)
         self.assertEqual(result["predictionHeight"], 518)
         self.assertEqual(result["minHeight"], 12.0)
@@ -96,7 +96,7 @@ class FixturePredictionTests(unittest.TestCase):
         self.assertEqual(response.json()["sourceName"], "gamus-urban-demo.png")
         self.assertTrue(response.json()["isFixture"])
 
-    def test_gamus_fixture_returns_aligned_six_class_semantics(self) -> None:
+    def test_gamus_fixture_returns_aligned_seven_class_semantics(self) -> None:
         response = self.client.post(
             "/api/predict",
             data={"example_id": "gamus-urban-demo"},
@@ -107,7 +107,7 @@ class FixturePredictionTests(unittest.TestCase):
         self.assertEqual(result["semanticSource"], "fixture")
         self.assertEqual(result["semanticGridSize"], result["gridSize"])
         self.assertEqual(len(result["semanticData"]), result["gridSize"] ** 2)
-        self.assertEqual(set(result["semanticData"]), set(range(6)))
+        self.assertEqual(set(result["semanticData"]), set(range(7)))
         self.assertEqual(result["buildingRegionSource"], "semantic_head")
         self.assertTrue(result["buildingRegions"])
         self.assertTrue(all(len(region["footprint"]) >= 3 for region in result["buildingRegions"]))
@@ -124,12 +124,12 @@ class FixturePredictionTests(unittest.TestCase):
 
         semantic_grid = np.asarray(result["semanticData"], dtype=np.uint8).reshape((128, 128))
         # These independent coordinates are anchored to the fixture image regions.
-        self.assertEqual(int(semantic_grid[5, 10]), 3)    # water
-        self.assertEqual(int(semantic_grid[60, 10]), 4)   # horizontal road
-        self.assertEqual(int(semantic_grid[25, 20]), 2)   # building
-        self.assertEqual(int(semantic_grid[100, 10]), 1)  # low vegetation
-        self.assertEqual(int(semantic_grid[72, 3]), 5)    # tree
-        self.assertEqual(int(semantic_grid[120, 120]), 0) # ground
+        self.assertEqual(int(semantic_grid[5, 10]), 4)    # water
+        self.assertEqual(int(semantic_grid[60, 10]), 5)   # horizontal road
+        self.assertEqual(int(semantic_grid[25, 20]), 3)   # building
+        self.assertEqual(int(semantic_grid[100, 10]), 2)  # low vegetation
+        self.assertEqual(int(semantic_grid[72, 3]), 6)    # tree
+        self.assertEqual(int(semantic_grid[120, 120]), 1) # ground
 
     def test_model_loading_failure_returns_a_clear_service_error(self) -> None:
         main_module.model_service = FailingModelService()

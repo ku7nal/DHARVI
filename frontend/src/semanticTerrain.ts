@@ -4,12 +4,13 @@ import * as THREE from "three";
 const WORLD_WIDTH = 15;
 const WORLD_DEPTH = 11;
 
-const GROUND = 0;
-const LOW_VEGETATION = 1;
-const BUILDING = 2;
-const WATER = 3;
-const ROAD = 4;
-const TREE = 5;
+const OTHERS = 0;
+const GROUND = 1;
+const LOW_VEGETATION = 2;
+const BUILDING = 3;
+const WATER = 4;
+const ROAD = 5;
+const TREE = 6;
 
 type SemanticTerrain = {
   heights: number[];
@@ -40,7 +41,7 @@ function prepareSemanticTerrain(
   semanticGridSize?: number | null,
 ): SemanticTerrain {
   const classes = semanticData?.length && semanticGridSize
-    ? resizeNearest(semanticData, semanticGridSize, gridSize).map((value) => value >= GROUND && value <= TREE ? value : GROUND)
+    ? resizeNearest(semanticData, semanticGridSize, gridSize).map((value) => value >= OTHERS && value <= TREE ? value : GROUND)
     : Array.from({ length: gridSize * gridSize }, () => GROUND);
   const safeHeights = heightData.map((value) => Number.isFinite(value) ? Math.max(0, value) : 0);
   const groundHeights = safeHeights.filter((_, index) => classes[index] === GROUND);
@@ -106,6 +107,7 @@ function createSemanticSurfaceGeometry(terrainHeights: number[], classes: number
 }
 
 const SEMANTIC_TERRAIN_CLASSES: Array<Pick<SemanticClass, "id" | "name" | "color">> = [
+  { id: OTHERS, name: "others", color: "#d9d9d9" },
   { id: GROUND, name: "ground", color: "#b6c99e" },
   { id: LOW_VEGETATION, name: "low_vegetation", color: "#83a96f" },
   { id: WATER, name: "water", color: "#72aee8" },
@@ -113,5 +115,5 @@ const SEMANTIC_TERRAIN_CLASSES: Array<Pick<SemanticClass, "id" | "name" | "color
   { id: TREE, name: "tree", color: "#4f8258" },
 ];
 
-export { BUILDING, GROUND, LOW_VEGETATION, ROAD, SEMANTIC_TERRAIN_CLASSES, TREE, WATER, createSemanticSurfaceGeometry, prepareSemanticTerrain };
+export { BUILDING, GROUND, LOW_VEGETATION, OTHERS, ROAD, SEMANTIC_TERRAIN_CLASSES, TREE, WATER, createSemanticSurfaceGeometry, prepareSemanticTerrain };
 export type { SemanticTerrain };

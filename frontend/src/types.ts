@@ -44,7 +44,7 @@ type BuildingRegion = {
 
 type SemanticClass = {
   id: number;
-  name: "ground" | "low_vegetation" | "building" | "water" | "road" | "tree";
+  name: "others" | "ground" | "low_vegetation" | "building" | "water" | "road" | "tree";
   label: string;
   color: string;
 };

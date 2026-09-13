@@ -17,7 +17,7 @@ from app.semantic_contract import SEMANTIC_CLASSES
 MEDIA_DIR = Path(__file__).resolve().parent.parent / "media"
 MEDIA_DIR.mkdir(parents=True, exist_ok=True)
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
-CHECKPOINT_PATH = Path(os.getenv("DEPTHWIZARD_CHECKPOINT", PROJECT_ROOT / "astra.pth"))
+CHECKPOINT_PATH = Path(os.getenv("DEPTHWIZARD_CHECKPOINT", PROJECT_ROOT / "dinosaur.pth"))
 model_service = DepthAnythingModelService(CHECKPOINT_PATH)
 SCENE_GRID_SIZE = 256
 
@@ -77,8 +77,9 @@ def _write_fixture_prediction_assets(image: Image.Image, prediction_id: str) -> 
 
 
 def _fixture_semantic_grid(grid_size: int = 128) -> np.ndarray:
-    """Create a deterministic, image-aligned six-class GAMUS fixture grid."""
-    labels = np.full((grid_size, grid_size), 0, dtype=np.uint8)
+    """Create a deterministic, image-aligned seven-class GAMUS fixture grid."""
+    labels = np.full((grid_size, grid_size), 1, dtype=np.uint8)
+    labels[-6:, -6:] = 0
 
     def rectangle(left: int, top: int, right: int, bottom: int, class_id: int) -> None:
         labels[top:bottom, left:right] = class_id
@@ -95,24 +96,24 @@ def _fixture_semantic_grid(grid_size: int = 128) -> np.ndarray:
 
     # These regions correspond to the roads, parks, water, and building blocks
     # drawn by _fixture_city, so every grid cell has the same image coordinate frame.
-    rectangle(0, 0, grid_size, round(grid_size * 0.08), 3)
-    rectangle(0, round(grid_size * 0.41), grid_size, round(grid_size * 0.54), 4)
-    rectangle(round(grid_size * 0.43), 0, round(grid_size * 0.51), grid_size, 4)
-    rectangle(round(grid_size * 0.04), round(grid_size * 0.58), round(grid_size * 0.38), grid_size, 1)
-    scaled_rectangle((30, 32, 280, 170), 2)
-    scaled_rectangle((440, 42, 710, 180), 2)
-    scaled_rectangle((65, 315, 300, 465), 2)
-    scaled_rectangle((440, 315, 700, 475), 2)
-    scaled_rectangle((120, 85, 188, 150), 2)
-    scaled_rectangle((520, 75, 590, 143), 2)
-    scaled_rectangle((485, 350, 565, 440), 2)
+    rectangle(0, 0, grid_size, round(grid_size * 0.08), 4)
+    rectangle(0, round(grid_size * 0.41), grid_size, round(grid_size * 0.54), 5)
+    rectangle(round(grid_size * 0.43), 0, round(grid_size * 0.51), grid_size, 5)
+    rectangle(round(grid_size * 0.04), round(grid_size * 0.58), round(grid_size * 0.38), grid_size, 2)
+    scaled_rectangle((30, 32, 280, 170), 3)
+    scaled_rectangle((440, 42, 710, 180), 3)
+    scaled_rectangle((65, 315, 300, 465), 3)
+    scaled_rectangle((440, 315, 700, 475), 3)
+    scaled_rectangle((120, 85, 188, 150), 3)
+    scaled_rectangle((520, 75, 590, 143), 3)
+    scaled_rectangle((485, 350, 565, 440), 3)
 
     for x, y in [(18, 290), (290, 295), (400, 295), (720, 290), (318, 35), (408, 185)]:
         center_x = round(x / 768 * grid_size)
         center_y = round(y / 512 * grid_size)
         radius = max(2, round(14 / 768 * grid_size))
         yy, xx = np.ogrid[:grid_size, :grid_size]
-        labels[(xx - center_x) ** 2 + (yy - center_y) ** 2 <= radius**2] = 5
+        labels[(xx - center_x) ** 2 + (yy - center_y) ** 2 <= radius**2] = 6
     return labels
 
 
@@ -366,7 +367,26 @@ async def predict(
             raise HTTPException(status_code=415, detail="Use a PNG, JPEG, or RGB GeoTIFF image.")
         image, geospatial_metadata, input_format = _read_image(raw, source_name, file.content_type)
         try:
-            height_map = model_service.predict(image)
+            if hasattr(model_service, "predict_result"):
+                prediction = model_service.predict_result(image)
+                height_map = prediction["height"]
+                if "semantic" in prediction:
+                    if prediction["semantic"].shape[0] != len(SEMANTIC_CLASSES):
+                        raise ModelUnavailableError("The model returned an invalid number of GAMUS semantic channels.")
+                    semantic_labels = np.argmax(prediction["semantic"], axis=0).astype(np.uint8)
+                    if semantic_labels.size and (semantic_labels.min() < 0 or semantic_labels.max() >= len(SEMANTIC_CLASSES)):
+                        raise ModelUnavailableError("The model returned a semantic class outside GAMUS IDs 0..6.")
+                    semantic_grid = np.asarray(
+                        Image.fromarray(semantic_labels, mode="L").resize(
+                            (SCENE_GRID_SIZE, SCENE_GRID_SIZE), Image.Resampling.NEAREST
+                        ),
+                        dtype=np.uint8,
+                    )
+                    semantic_map_url, semantic_data = _write_semantic_asset(semantic_grid, prediction_id)
+                    semantic_grid_size = SCENE_GRID_SIZE
+                    semantic_source = "trained"
+            else:
+                height_map = model_service.predict(image)
         except ModelUnavailableError as error:
             raise HTTPException(status_code=503, detail=str(error)) from error
         input_url, height_url, height_data, min_height, max_height = _write_model_prediction_assets(

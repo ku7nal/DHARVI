@@ -5,6 +5,8 @@ import platform
 import numpy as np
 from PIL import Image
 
+from app.semantic_contract import CLASS_COUNT, CLASS_NAMES
+
 
 class ModelUnavailableError(RuntimeError):
     """Raised when the fine-tuned inference model cannot be loaded."""
@@ -20,6 +22,7 @@ class DepthAnythingModelService:
         self.device_name = device
         self._model = None
         self._torch = None
+        self._multitask = False
 
     def _load_model(self):
         if self._model is not None:
@@ -39,29 +42,87 @@ class DepthAnythingModelService:
             raise ModelUnavailableError(f"Model checkpoint was not found at {self.checkpoint_path}.")
 
         try:
-            base_model = AutoModelForDepthEstimation.from_pretrained(self.model_id)
-            input_size = self.input_size
+            checkpoint = torch.load(self.checkpoint_path, map_location="cpu", weights_only=False)
+            checkpoint_state = checkpoint.get("state_dict", checkpoint) if isinstance(checkpoint, dict) else checkpoint
+            checkpoint_model_id = checkpoint.get("model_id") if isinstance(checkpoint, dict) else None
+            checkpoint_classes = tuple(checkpoint.get("class_names", ())) if isinstance(checkpoint, dict) else ()
+            if checkpoint_classes and checkpoint_classes != CLASS_NAMES:
+                raise ModelUnavailableError(
+                    "The checkpoint uses an incompatible GAMUS taxonomy; "
+                    f"expected {CLASS_NAMES}, got {checkpoint_classes}."
+                )
+            model_id = checkpoint_model_id or self.model_id
+            input_size = int(checkpoint.get("image_size", self.input_size)) if isinstance(checkpoint, dict) else self.input_size
+            self.model_id = model_id
+            self.input_size = input_size
 
-            class DepthAnythingHeightModel(nn.Module):
-                def __init__(self, base):
-                    super().__init__()
-                    self.model = base
-                    for parameter in self.model.backbone.embeddings.parameters():
-                        parameter.requires_grad = False
+            base_model = AutoModelForDepthEstimation.from_pretrained(model_id)
 
-                def forward(self, pixel_values):
-                    outputs = self.model(pixel_values=pixel_values)
-                    predicted_height = nn.functional.interpolate(
-                        outputs.predicted_depth.unsqueeze(1),
-                        size=(input_size, input_size),
-                        mode="bilinear",
-                        align_corners=True,
-                    )
-                    return torch.relu(predicted_height)
+            is_multitask = any(key.startswith("base.") for key in checkpoint_state) and "semantic_head.0.weight" in checkpoint_state
 
-            model = DepthAnythingHeightModel(base_model)
-            state_dict = torch.load(self.checkpoint_path, map_location="cpu", weights_only=True)
-            model.load_state_dict(state_dict, strict=True)
+            if is_multitask:
+                channels = int(getattr(base_model.config, "hidden_size", getattr(base_model.config, "reassemble_hidden_size", 384)))
+
+                class DepthAnythingMultitaskModel(nn.Module):
+                    def __init__(self, base):
+                        super().__init__()
+                        self.base = base
+                        self.semantic_head = nn.Sequential(
+                            nn.Conv2d(channels, 256, 3, padding=1),
+                            nn.GELU(),
+                            nn.Conv2d(256, CLASS_COUNT, 1),
+                        )
+                        self.boundary_head = nn.Sequential(
+                            nn.Conv2d(channels, 128, 3, padding=1),
+                            nn.GELU(),
+                            nn.Conv2d(128, 1, 1),
+                        )
+
+                    def forward(self, pixel_values):
+                        import math
+
+                        outputs = self.base(pixel_values=pixel_values, output_hidden_states=True)
+                        height = nn.functional.interpolate(
+                            outputs.predicted_depth.unsqueeze(1),
+                            size=pixel_values.shape[-2:],
+                            mode="bilinear",
+                            align_corners=True,
+                        )
+                        features = outputs.hidden_states[-1]
+                        if features.ndim == 3:
+                            side = int(math.sqrt(features.shape[1]))
+                            if side * side != features.shape[1]:
+                                features = features[:, 1:]
+                                side = int(math.sqrt(features.shape[1]))
+                            features = features[:, :side * side].transpose(1, 2).reshape(features.shape[0], features.shape[2], side, side)
+                        semantic = nn.functional.interpolate(self.semantic_head(features), size=pixel_values.shape[-2:], mode="bilinear", align_corners=False)
+                        boundary = nn.functional.interpolate(self.boundary_head(features), size=pixel_values.shape[-2:], mode="bilinear", align_corners=False)
+                        return {"height": torch.relu(height), "semantic": semantic, "boundary": boundary}
+
+                model = DepthAnythingMultitaskModel(base_model)
+                model.load_state_dict(checkpoint_state, strict=True)
+                self._multitask = True
+            else:
+                class DepthAnythingHeightModel(nn.Module):
+                    def __init__(self, base):
+                        super().__init__()
+                        self.model = base
+                        for parameter in self.model.backbone.embeddings.parameters():
+                            parameter.requires_grad = False
+
+                    def forward(self, pixel_values):
+                        outputs = self.model(pixel_values=pixel_values)
+                        predicted_height = nn.functional.interpolate(
+                            outputs.predicted_depth.unsqueeze(1),
+                            size=(input_size, input_size),
+                            mode="bilinear",
+                            align_corners=True,
+                        )
+                        return torch.relu(predicted_height)
+
+                model = DepthAnythingHeightModel(base_model)
+                model.load_state_dict(checkpoint_state, strict=True)
+
             if self.device_name:
                 device = self.device_name
             elif torch.cuda.is_available():
@@ -116,10 +177,14 @@ class DepthAnythingModelService:
         return tile, (0, 0, valid_width, valid_height)
 
     def predict(self, image: Image.Image) -> np.ndarray:
+        return self.predict_result(image)["height"]
+
+    def predict_result(self, image: Image.Image) -> dict[str, np.ndarray]:
         try:
             model = self._load_model()
             image = image.convert("RGB")
             prediction_sum = np.zeros((image.height, image.width), dtype=np.float32)
+            semantic_sum = np.zeros((CLASS_COUNT, image.height, image.width), dtype=np.float32) if self._multitask else None
             weight_sum = np.zeros_like(prediction_sum)
             # A smooth window prevents seams where adjacent tiles meet.
             window_1d = np.hanning(self.input_size).astype(np.float32)
@@ -131,20 +196,38 @@ class DepthAnythingModelService:
                     for left in self._tile_starts(image.width):
                         tile, (_, _, valid_width, valid_height) = self._prepare_tile(image, left, top)
                         tensor = self._preprocess(tile).to(self.device_name)
-                        tile_prediction = model(tensor)[0, 0].detach().cpu().numpy().astype(np.float32)
+                        tile_output = model(tensor)
+                        if self._multitask:
+                            tile_prediction = tile_output["height"][0, 0].detach().cpu().numpy().astype(np.float32)
+                            tile_semantic = tile_output["semantic"][0].detach().cpu().numpy().astype(np.float32)
+                        else:
+                            tile_prediction = tile_output[0, 0].detach().cpu().numpy().astype(np.float32)
                         # TTA catches the strongest directional bias in aerial imagery.
                         flipped = tile.transpose(Image.Transpose.FLIP_LEFT_RIGHT)
-                        flipped_prediction = model(self._preprocess(flipped).to(self.device_name))[0, 0]
-                        flipped_prediction = flipped_prediction.detach().cpu().numpy().astype(np.float32)
+                        flipped_output = model(self._preprocess(flipped).to(self.device_name))
+                        if self._multitask:
+                            flipped_prediction = flipped_output["height"][0, 0].detach().cpu().numpy().astype(np.float32)
+                            flipped_semantic = flipped_output["semantic"][0].detach().cpu().numpy().astype(np.float32)
+                            flipped_semantic = np.flip(flipped_semantic, axis=2)
+                        else:
+                            flipped_prediction = flipped_output[0, 0].detach().cpu().numpy().astype(np.float32)
                         flipped_prediction = np.fliplr(flipped_prediction)
                         tile_prediction = (tile_prediction + flipped_prediction) * 0.5
                         tile_prediction = np.maximum(tile_prediction, 0.0)
                         tile_prediction = tile_prediction[:valid_height, :valid_width]
                         tile_weight = window[:valid_height, :valid_width]
                         prediction_sum[top:top + valid_height, left:left + valid_width] += tile_prediction * tile_weight
+                        if semantic_sum is not None:
+                            tile_semantic = (tile_semantic + flipped_semantic) * 0.5
+                            semantic_sum[:, top:top + valid_height, left:left + valid_width] += tile_semantic[:, :valid_height, :valid_width] * tile_weight
                         weight_sum[top:top + valid_height, left:left + valid_width] += tile_weight
 
-            return np.divide(prediction_sum, np.maximum(weight_sum, 1e-6)).astype(np.float32)
+            result: dict[str, np.ndarray] = {
+                "height": np.divide(prediction_sum, np.maximum(weight_sum, 1e-6)).astype(np.float32),
+            }
+            if semantic_sum is not None:
+                result["semantic"] = np.divide(semantic_sum, np.maximum(weight_sum, 1e-6)[None]).astype(np.float32)
+            return result
         except ModelUnavailableError:
             raise
         except Exception as error:
