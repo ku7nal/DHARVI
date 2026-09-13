@@ -33,7 +33,10 @@ const isolatedBuilding = Array.from({ length: 16 }, () => GROUND);
 isolatedBuilding[5] = BUILDING;
 const groundGeometry = createSemanticSurfaceGeometry(terrain.heights, isolatedBuilding, 4, GROUND, 90, 1);
 if (groundGeometry.getAttribute("position").count !== 15 * 4) throw new Error("ground geometry lost cells around the building");
-if ((groundGeometry.getAttribute("normal").getY(0) ?? 0) <= 0) throw new Error("semantic surface normal points away from the scene");
+const groundNormals = groundGeometry.getAttribute("normal");
+if ([...groundNormals.array].some((value) => !Number.isFinite(value))) throw new Error("semantic surface normal is not finite");
+if (Array.from({ length: groundNormals.count }, (_, index) => groundNormals.getY(index)).some((value) => value <= 0)) throw new Error("semantic surface normal points away from the scene");
+groundGeometry.dispose();
 
 const mixedClasses = [GROUND, ROAD, LOW_VEGETATION, WATER];
 const mixedTerrain = prepareSemanticTerrain([0, 0, 0, 0], 2, 1, mixedClasses, 2);
@@ -60,6 +63,22 @@ spikeGeometry.dispose();
 const stableRoadGeometry = createSemanticSurfaceGeometry([0, 90, 0, 0], [ROAD, ROAD, ROAD, ROAD], 2, ROAD, 90, 1, 0);
 if ([...stableRoadGeometry.getAttribute("position").array].some((value, index) => index % 3 === 1 && Math.abs(value - 0.012) > 0.0001)) throw new Error("road surface was vertically distorted");
 stableRoadGeometry.dispose();
+
+const stableWaterGeometry = createSemanticSurfaceGeometry([0, 90, 0, 0], [WATER, WATER, WATER, WATER], 2, WATER, 90, 1, 0);
+if ([...stableWaterGeometry.getAttribute("position").array].some((value, index) => index % 3 === 1 && Math.abs(value - 0.012) > 0.0001)) throw new Error("water surface was vertically distorted");
+stableWaterGeometry.dispose();
+
+const reliefGeometry = createSemanticSurfaceGeometry([0, 10, 20, 30], [GROUND, GROUND, GROUND, GROUND], 2, GROUND, 30, 1);
+const reliefPositions = reliefGeometry.getAttribute("position");
+let largestReliefEdge = 0;
+for (let cell = 0; cell < reliefPositions.count / 4; cell += 1) {
+  const firstVertex = cell * 4;
+  for (const nextVertex of [1, 2, 3]) {
+    largestReliefEdge = Math.max(largestReliefEdge, Math.abs(reliefPositions.getY(firstVertex) - reliefPositions.getY(firstVertex + nextVertex)));
+  }
+}
+if (largestReliefEdge > 1.25) throw new Error("semantic terrain local height difference exceeded the smoothing budget");
+reliefGeometry.dispose();
 
 const expectedPalette = ["#d9d9d9", "#b6c99e", "#83a96f", "#c7cbd1", "#72aee8", "#e8e1d6", "#4f8258"];
 for (const [classId, expectedColor] of expectedPalette.entries()) {
@@ -108,6 +127,7 @@ const totalBudgetCells = budgetGeometries.reduce((total, geometry) => {
   const indices = geometry.getIndex()?.count ?? 0;
   if (positions % 4 !== 0 || indices % 6 !== 0) throw new Error("semantic geometry has an invalid tile shape");
   if ([...geometry.getAttribute("position").array, ...geometry.getAttribute("normal").array].some((value) => !Number.isFinite(value))) throw new Error("semantic geometry is unstable from camera angles");
+  if (Array.from({ length: geometry.getAttribute("normal").count }, (_, index) => geometry.getAttribute("normal").getY(index)).some((value) => value <= 0)) throw new Error("semantic geometry has a downward-facing normal");
   geometry.dispose();
   return total + positions / 4;
 }, 0);
