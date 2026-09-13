@@ -178,6 +178,7 @@ function App() {
                     buildingRegions={prediction.buildingRegions}
                     semanticData={prediction.semanticData}
                     semanticGridSize={prediction.semanticGridSize}
+                    semanticClasses={prediction.semanticClasses}
                     layers={layers}
                     inputImageUrl={`http://localhost:8000${prediction.inputImageUrl}`}
                   />

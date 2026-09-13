@@ -1,4 +1,4 @@
-import { BUILDING, GROUND, OTHERS, ROAD, WATER, createSemanticSurfaceGeometry, prepareSemanticTerrain } from "../src/semanticTerrain.ts";
+import { BUILDING, GROUND, LOW_VEGETATION, OTHERS, ROAD, SEMANTIC_TERRAIN_CLASSES, TREE, WATER, createSemanticSurfaceGeometry, getSemanticClassColor, prepareSemanticTerrain } from "../src/semanticTerrain.ts";
 
 const classes = Array.from({ length: 16 }, () => GROUND);
 classes[5] = BUILDING;
@@ -17,7 +17,19 @@ if (terrain.classes[15] !== OTHERS) throw new Error("others semantic class was l
 const isolatedBuilding = Array.from({ length: 16 }, () => GROUND);
 isolatedBuilding[5] = BUILDING;
 const groundGeometry = createSemanticSurfaceGeometry(terrain.heights, isolatedBuilding, 4, GROUND, 90, 1);
-if (groundGeometry.getAttribute("position").count !== 20) throw new Error("ground geometry crosses the building cell");
+if (groundGeometry.getAttribute("position").count !== 15 * 4) throw new Error("ground geometry lost cells around the building");
+
+const mixedClasses = [GROUND, ROAD, LOW_VEGETATION, WATER];
+const mixedTerrain = prepareSemanticTerrain([0, 0, 0, 0], 2, 1, mixedClasses, 2);
+const mixedGeometry = [GROUND, ROAD, LOW_VEGETATION, WATER].map((classId) => createSemanticSurfaceGeometry(mixedTerrain.heights, mixedTerrain.classes, 2, classId, 1, 1));
+if (mixedGeometry.some((geometry) => geometry.getAttribute("position").count !== 4)) throw new Error("mixed semantic boundary lost a cell");
+
+if (SEMANTIC_TERRAIN_CLASSES.find(({ id }) => id === BUILDING)?.color !== "#c7cbd1") throw new Error("building palette is not exact");
+if (SEMANTIC_TERRAIN_CLASSES.find(({ id }) => id === TREE)?.color !== "#4f8258") throw new Error("tree palette is not exact");
+if (getSemanticClassColor(ROAD, [{ id: ROAD, color: "#123456" }]) !== "#123456") throw new Error("prediction palette was ignored");
+
+const invalidTerrain = prepareSemanticTerrain([0, 0, 0, 0], 2, 1, [99, -1, Number.NaN, GROUND], 2);
+if (invalidTerrain.classes.some((classId) => classId < OTHERS || classId > TREE)) throw new Error("invalid semantic class was not safely normalized");
 
 const legacyTerrain = prepareSemanticTerrain(heights, 4, 90);
 if (legacyTerrain.classes.some((classId) => classId !== GROUND)) throw new Error("height-only terrain lost its legacy ground fallback");
