@@ -16,7 +16,7 @@ assert.deepEqual(DEFAULT_SCENE_LAYERS, {
   roads: true,
   water: true,
   vegetation: true,
-  trees: false,
+  trees: true,
   slope: false,
   height: false,
   rgb: false,
