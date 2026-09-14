@@ -5,35 +5,24 @@ import { ReconstructionViewer } from "./scene/ReconstructionViewer";
 import { DEFAULT_SCENE_LAYERS, type BenchmarkResult, type PredictionResult, type SceneLayers } from "./types";
 
 type NavItem = "New reconstruction" | "Examples" | "About";
+type RailItem = "layers" | "analytics";
+type PanelTab = "General" | "Data" | "Style" | "Hover" | "Click";
 type PredictionState = "idle" | "processing" | "success" | "error";
-
 const ACCEPTED_FORMATS = ".png,.jpg,.jpeg,.tif,.tiff";
 
-function Icon({ name }: { name: "plus" | "layers" | "book" | "search" | "bell" | "chevron" }) {
+function Icon({ name }: { name: "plus" | "layers" | "book" | "search" | "bell" | "chevron" | "eye" | "dots" | "back" | "grid" | "pie" | "print" | "info" | "close" | "zoomIn" | "zoomOut" | "fit" | "image" | "earth" | "check" }) {
   const paths = {
-    plus: <><path d="M12 5v14M5 12h14" /></>,
-    layers: <><path d="m12 3 8 4.5-8 4.5-8-4.5L12 3Z" /><path d="m4 12 8 4.5 8-4.5M4 16.5 12 21l8-4.5" /></>,
-    book: <><path d="M4 5.5A2.5 2.5 0 0 1 6.5 3H20v16H6.5A2.5 2.5 0 0 0 4 21V5.5Z" /><path d="M4 5.5v15M8 7h8M8 11h8" /></>,
-    search: <><circle cx="10.8" cy="10.8" r="6.8" /><path d="m16 16 4.5 4.5" /></>,
-    bell: <><path d="M18 9a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9ZM10 22h4" /></>,
-    chevron: <path d="m8 10 4 4 4-4" />,
+    plus: <><path d="M12 5v14M5 12h14" /></>, layers: <><path d="m12 3 8 4.5-8 4.5-8-4.5L12 3Z" /><path d="m4 12 8 4.5 8-4.5M4 16.5 12 21l8-4.5" /></>, book: <><path d="M4 5.5A2.5 2.5 0 0 1 6.5 3H20v16H6.5A2.5 2.5 0 0 0 4 21V5.5Z" /><path d="M4 5.5v15M8 7h8M8 11h8" /></>, search: <><circle cx="10.8" cy="10.8" r="6.8" /><path d="m16 16 4.5 4.5" /></>, bell: <><path d="M18 9a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9ZM10 22h4" /></>, chevron: <path d="m8 10 4 4 4-4" />, eye: <><path d="M2.5 12s3.5-5 9.5-5 9.5 5 9.5 5-3.5 5-9.5 5-9.5-5-9.5-5Z" /><circle cx="12" cy="12" r="2" /></>, dots: <><circle cx="5" cy="12" r="1" fill="currentColor" stroke="none" /><circle cx="12" cy="12" r="1" fill="currentColor" stroke="none" /><circle cx="19" cy="12" r="1" fill="currentColor" stroke="none" /></>, back: <><path d="m15 18-6-6 6-6" /><path d="M9 12h11" /></>, grid: <><rect x="4" y="4" width="6" height="6" rx="1" /><rect x="14" y="4" width="6" height="6" rx="1" /><rect x="4" y="14" width="6" height="6" rx="1" /><rect x="14" y="14" width="6" height="6" rx="1" /></>, pie: <><path d="M12 3v9h9A9 9 0 1 1 12 3Z" /><path d="M15 3.5A9 9 0 0 1 20.5 9H15V3.5Z" /></>, print: <><path d="M6 9V3h12v6M6 17H4a2 2 0 0 1-2-2v-4a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v4a2 2 0 0 1-2 2h-2" /><path d="M6 14h12v7H6z" /></>, info: <><circle cx="12" cy="12" r="9" /><path d="M12 11v6M12 7.5v.5" /></>, close: <><path d="m6 6 12 12M18 6 6 18" /></>, zoomIn: <><circle cx="10.5" cy="10.5" r="6.5" /><path d="m16 16 4 4M10.5 7.5v6M7.5 10.5h6" /></>, zoomOut: <><circle cx="10.5" cy="10.5" r="6.5" /><path d="m16 16 4 4M7.5 10.5h6" /></>, fit: <><path d="M8 3H3v5M16 3h5v5M8 21H3v-5M16 21h5v-5" /></>, image: <><rect x="3" y="4" width="18" height="16" rx="2" /><circle cx="8.5" cy="9" r="1.5" /><path d="m4 17 5-5 3 3 2-2 6 5" /></>, earth: <><circle cx="12" cy="12" r="9" /><path d="M3 12h18M12 3c2.2 2.5 3.2 5.5 3.2 9s-1 6.5-3.2 9c-2.2-2.5-3.2-5.5-3.2-9S9.8 5.5 12 3ZM5 6.5c2 .9 4.3 1.4 7 1.4s5-.5 7-1.4M5 17.5c2-.9 4.3-1.4 7-1.4s5 .5 7 1.4" /></>, check: <path d="m5 12 4 4L19 6" />,
   };
-
-  return (
-    <svg aria-hidden="true" className="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
-      {paths[name]}
-    </svg>
-  );
+  return <svg aria-hidden="true" className="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">{paths[name]}</svg>;
 }
 
-function BrandMark() {
-  return <div className="brand-mark" aria-hidden="true">D</div>;
-}
+function BrandMark() { return <div className="brand-mark" aria-hidden="true"><Icon name="earth" /></div>; }
 
 function App() {
   const [activeNav, setActiveNav] = useState<NavItem>("New reconstruction");
+  const [railItem, setRailItem] = useState<RailItem>("layers");
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
-  const [isDragging, setIsDragging] = useState(false);
   const [backendStatus, setBackendStatus] = useState<"checking" | "online" | "offline">("checking");
   const [predictionState, setPredictionState] = useState<PredictionState>("idle");
   const [prediction, setPrediction] = useState<PredictionResult | null>(null);
@@ -41,193 +30,39 @@ function App() {
   const [layers, setLayers] = useState<SceneLayers>(DEFAULT_SCENE_LAYERS);
   const [benchmarks, setBenchmarks] = useState<BenchmarkResult[]>([]);
   const [benchmarkState, setBenchmarkState] = useState<"idle" | "loading" | "ready" | "error">("idle");
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [panelTab, setPanelTab] = useState<PanelTab>("Style");
+  const [selectedLayer, setSelectedLayer] = useState("height");
+  const [panelOpen, setPanelOpen] = useState(true);
+  const [publishState, setPublishState] = useState(false);
+  const [opacity, setOpacity] = useState(25);
+  const [density, setDensity] = useState(128);
+  const [size, setSize] = useState(8);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  useEffect(() => {
-    fetch("http://localhost:8000/api/health")
-      .then((response) => {
-        if (!response.ok) throw new Error("Backend unavailable");
-        return response.json();
-      })
-      .then(() => setBackendStatus("online"))
-      .catch(() => setBackendStatus("offline"));
-  }, []);
-
+  useEffect(() => { fetch("http://localhost:8000/api/health").then((response) => { if (!response.ok) throw new Error("Backend unavailable"); return response.json(); }).then(() => setBackendStatus("online")).catch(() => setBackendStatus("offline")); }, []);
   useEffect(() => {
     if (activeNav !== "Examples" || benchmarkState === "loading" || benchmarkState === "ready") return;
     setBenchmarkState("loading");
-    fetch("http://localhost:8000/api/benchmarks")
-      .then(async (response) => {
-        const body = await response.json() as { benchmarks?: BenchmarkResult[]; detail?: string };
-        if (!response.ok || !body.benchmarks?.length) throw new Error(body.detail ?? "Benchmark examples could not be loaded.");
-        setBenchmarks(body.benchmarks);
-        setBenchmarkState("ready");
-      })
-      .catch(() => setBenchmarkState("error"));
+    fetch("http://localhost:8000/api/benchmarks").then(async (response) => { const body = await response.json() as { benchmarks?: BenchmarkResult[]; detail?: string }; if (!response.ok || !body.benchmarks?.length) throw new Error(body.detail ?? "Benchmark examples could not be loaded."); setBenchmarks(body.benchmarks); setBenchmarkState("ready"); }).catch(() => setBenchmarkState("error"));
   }, [activeNav, benchmarkState]);
 
-  function handleFile(file: File | undefined) {
-    if (!file) return;
-    setSelectedFile(file);
-    void startPrediction(file);
-  }
-
+  function handleFile(file: File | undefined) { if (!file) return; setSelectedFile(file); void startPrediction(file); }
   async function startPrediction(file?: File, exampleId?: string) {
-    setPredictionState("processing");
-    setPrediction(null);
-    setErrorMessage(null);
-    const formData = new FormData();
-    if (file) formData.append("file", file);
-    if (exampleId) formData.append("example_id", exampleId);
-
-    try {
-      const response = await fetch("http://localhost:8000/api/predict", { method: "POST", body: formData });
-      const body = await response.json() as PredictionResult | { detail?: string };
-      if (!response.ok) throw new Error("detail" in body ? body.detail : "Prediction could not be created.");
-      setPrediction(body as PredictionResult);
-      setLayers(DEFAULT_SCENE_LAYERS);
-      setSelectedFile(file ?? null);
-      setPredictionState("success");
-    } catch (error) {
-      setPredictionState("error");
-      setErrorMessage(error instanceof Error ? error.message : "Prediction could not be created.");
-    }
+    setPredictionState("processing"); setPrediction(null); setErrorMessage(null); const formData = new FormData(); if (file) formData.append("file", file); if (exampleId) formData.append("example_id", exampleId);
+    try { const response = await fetch("http://localhost:8000/api/predict", { method: "POST", body: formData }); const body = await response.json() as PredictionResult | { detail?: string }; if (!response.ok) throw new Error("detail" in body ? body.detail : "Prediction could not be created."); setPrediction(body as PredictionResult); setLayers(DEFAULT_SCENE_LAYERS); setSelectedFile(file ?? null); setPredictionState("success"); } catch (error) { setPredictionState("error"); setErrorMessage(error instanceof Error ? error.message : "Prediction could not be created."); }
   }
 
   const statusLabel = backendStatus === "online" ? "API connected" : backendStatus === "offline" ? "API offline" : "Checking API";
+  const selectedLayerLabel = selectedLayer === "height" ? "Height surface" : selectedLayer === "semantic" ? "Semantic regions" : selectedLayer === "buildings" ? "Building footprints" : "RGB texture";
+  const layerOptions = [{ id: "height", label: "Height surface", detail: "Estimated nDSM", color: "blue" }, { id: "semantic", label: "Semantic regions", detail: "GAMUS classes", color: "green" }, { id: "buildings", label: "Building footprints", detail: "Height-derived regions", color: "purple" }, { id: "rgb", label: "RGB texture", detail: "Source imagery", color: "orange" }];
 
-  return (
-    <main className="page-shell">
-      <section className={`app-window ${sidebarCollapsed ? "sidebar-collapsed" : ""}`} aria-label="DepthWizard workspace">
-        <aside className="sidebar">
-          <div className="brand-row">
-            <BrandMark />
-            <span className="brand-name">DepthWizard</span>
-            <button
-              className="icon-button sidebar-collapse"
-              aria-label={sidebarCollapsed ? "Expand navigation" : "Collapse navigation"}
-              aria-expanded={!sidebarCollapsed}
-              onClick={() => setSidebarCollapsed((collapsed) => !collapsed)}
-            >
-              <Icon name="chevron" />
-            </button>
-          </div>
-
-          <nav className="navigation" aria-label="Main navigation">
-            <p className="nav-label">Workspace</p>
-            <button className={`nav-item ${activeNav === "New reconstruction" ? "active" : ""}`} onClick={() => setActiveNav("New reconstruction")}>
-              <Icon name="plus" />
-              <span>New reconstruction</span>
-            </button>
-            <button className={`nav-item ${activeNav === "Examples" ? "active" : ""}`} onClick={() => setActiveNav("Examples")}>
-              <Icon name="layers" />
-              <span>Examples</span>
-            </button>
-            <button className={`nav-item ${activeNav === "About" ? "active" : ""}`} onClick={() => setActiveNav("About")}>
-              <Icon name="book" />
-              <span>About</span>
-            </button>
-          </nav>
-
-          <div className="sidebar-footer">
-            <span className={`status-dot ${backendStatus}`} />
-            <span>{statusLabel}</span>
-            <span className="version-label">v0.1</span>
-          </div>
-        </aside>
-
-        <div className="workspace">
-          <header className="topbar">
-            <div className="breadcrumbs">
-              <span>{activeNav}</span>
-              <span className="breadcrumb-separator">/</span>
-              <strong>{selectedFile?.name ?? "Untitled workspace"}</strong>
-            </div>
-            <div className="topbar-actions">
-              <div className="model-pill"><span className="status-dot online" /> DepthAnything V2 · GAMUS</div>
-              <button className="icon-button" aria-label="Search"><Icon name="search" /></button>
-              <button className="icon-button" aria-label="Notifications"><Icon name="bell" /></button>
-              <button className="avatar-button" aria-label="User profile">K</button>
-            </div>
-          </header>
-
-          <div className="workspace-content">
-            <div className="content-heading">
-              <div>
-                <p className="eyebrow">Monocular height reconstruction</p>
-                <h1>{activeNav === "New reconstruction" ? "New reconstruction" : activeNav}</h1>
-              </div>
-                <div className="content-meta">{prediction?.heightReference === "absolute" ? "Metric DSM · meters" : "Estimated nDSM · relative meters"}</div>
-            </div>
-
-            {activeNav === "New reconstruction" && predictionState === "success" && prediction ? (
-              <section className="result-card">
-                <div className="result-heading">
-                  <div>
-                    <p className="eyebrow">Interactive reconstruction</p>
-                    <h2>{prediction.sourceName}</h2>
-                  </div>
-                  <div className="result-badge"><span className="status-dot online" /> {prediction.isFixture ? "Fixture result" : "Live model result"}</div>
-                </div>
-                <div className="result-body">
-                  <ReconstructionViewer
-                    heightData={prediction.heightData}
-                    gridSize={prediction.gridSize}
-                    maxHeight={prediction.maxHeight}
-                    buildingRegions={prediction.buildingRegions}
-                    semanticData={prediction.semanticData}
-                    semanticGridSize={prediction.semanticGridSize}
-                    semanticClasses={prediction.semanticClasses}
-                    layers={layers}
-                    inputImageUrl={`http://localhost:8000${prediction.inputImageUrl}`}
-                  />
-                  <PredictionInspector prediction={prediction} layers={layers} onToggleLayer={(layer) => setLayers((current) => ({ ...current, [layer]: !current[layer] }))} />
-                </div>
-                <div className="result-footer">
-                  <span>{prediction.heightReference === "absolute" ? "Metric DSM · meters" : "Estimated nDSM · relative meters"}</span>
-                  <span>{prediction.width} × {prediction.height} input · {prediction.gridSize} × {prediction.gridSize} scene</span>
-                  <button className="text-button" onClick={() => { setPrediction(null); setPredictionState("idle"); setSelectedFile(null); }}>New reconstruction <span>→</span></button>
-                </div>
-              </section>
-            ) : activeNav === "New reconstruction" && (
-              <section
-                className={`upload-card ${isDragging ? "dragging" : ""}`}
-                onDragEnter={(event) => { event.preventDefault(); setIsDragging(true); }}
-                onDragOver={(event) => event.preventDefault()}
-                onDragLeave={() => setIsDragging(false)}
-                onDrop={(event) => { event.preventDefault(); setIsDragging(false); handleFile(event.dataTransfer.files[0]); }}
-                aria-label="Upload aerial image"
-              >
-                <div className="upload-illustration"><span className="upload-orbit orbit-one" /><span className="upload-orbit orbit-two" /><span className="upload-core"><Icon name="plus" /></span></div>
-                {predictionState === "processing" ? <>
-                  <h2>Preparing your reconstruction</h2>
-                  <p>Running the fine-tuned DepthAnything V2 model.</p>
-                  <div className="progress-track"><span /></div>
-                </> : predictionState === "error" ? <>
-                  <h2>We could not process that image</h2>
-                  <p className="error-copy">{errorMessage}</p>
-                  <button className="primary-button" onClick={() => fileInputRef.current?.click()}><Icon name="plus" /> Try another image</button>
-                </> : <>
-                  <h2>Bring a scene to life</h2>
-                  <p>Upload an aerial image to generate an explorable 3D scene.</p>
-                  <button className="primary-button" onClick={() => fileInputRef.current?.click()}>
-                    <Icon name="plus" /> Upload aerial image
-                  </button>
-                </>}
-                <input ref={fileInputRef} className="visually-hidden" type="file" accept={ACCEPTED_FORMATS} onChange={(event) => handleFile(event.target.files?.[0])} />
-                <div className="supported-formats"><span>PNG</span><span>JPEG</span><span>RGB GeoTIFF</span></div>
-                <button className="text-button" onClick={() => void startPrediction(undefined, "gamus-urban-demo")}>Try a GAMUS example <span>→</span></button>
-              </section>
-            )}
-
-            {activeNav === "Examples" && (benchmarkState === "ready" && benchmarks.length ? <BenchmarkWorkspace benchmarks={benchmarks} /> : <section className="empty-panel"><div className="panel-icon"><Icon name="layers" /></div><h2>{benchmarkState === "error" ? "Benchmark unavailable" : "Loading benchmark examples"}</h2><p>{benchmarkState === "error" ? "Start the backend and try again to load reference comparisons." : "Preparing input, reference, prediction, error map, and accuracy metrics."}</p>{benchmarkState === "error" && <button className="primary-button" onClick={() => setBenchmarkState("idle")}>Try again</button>}</section>)}
-            {activeNav === "About" && <section className="empty-panel"><div className="panel-icon"><Icon name="book" /></div><h2>About DepthWizard</h2><p>Explore estimated height above ground from aerial imagery. The first workspace is designed around a fine-tuned DepthAnything V2 model trained on GAMUS.</p></section>}
-          </div>
-        </div>
-      </section>
-    </main>
-  );
+  return <main className="page-shell"><section className={`app-window ${panelOpen ? "" : "panel-closed"}`} aria-label="Dharvi geospatial workspace">
+    <aside className="tool-rail"><BrandMark /><div className="rail-group"><button className={`rail-button ${railItem === "layers" ? "active" : ""}`} aria-label="Layers" onClick={() => { setRailItem("layers"); setPanelOpen(true); }}><Icon name="layers" /></button><button className={`rail-button ${railItem === "analytics" ? "active" : ""}`} aria-label="Analysis" onClick={() => { setRailItem("analytics"); setPanelOpen(true); }}><Icon name="pie" /></button></div><div className="rail-bottom"><button className="rail-button" aria-label="Print"><Icon name="print" /></button><button className="rail-button" aria-label="Information"><Icon name="info" /></button></div></aside>
+    <aside className="editor-panel" aria-label="Layers and style editor"><div className="panel-header"><button className="back-button" onClick={() => setActiveNav("New reconstruction")}><Icon name="back" /> Back</button><button className="panel-close" aria-label="Close panel" onClick={() => setPanelOpen(false)}><Icon name="close" /></button></div>{railItem === "layers" ? <><div className="panel-title-row"><h2>Layers</h2><span className="panel-count">4</span></div><div className="layer-list">{layerOptions.map((layer) => <button key={layer.id} className={`layer-row ${selectedLayer === layer.id ? "selected" : ""}`} onClick={() => setSelectedLayer(layer.id)}><span className={`layer-thumb ${layer.color}`}><Icon name={layer.id === "semantic" ? "grid" : layer.id === "rgb" ? "image" : "layers"} /></span><span className="layer-row-copy"><strong>{layer.label}</strong><small>{layer.detail}</small></span><span className="layer-row-actions"><Icon name="eye" /><Icon name="dots" /></span></button>)}</div><div className="panel-section-heading"><span>Project views</span><button aria-label="Add view"><Icon name="plus" /></button></div><div className="project-card selected"><div className="project-preview preview-a"><span className="preview-dot" /><span className="preview-line" /><span className="preview-line short" /></div><div className="project-card-copy"><strong>New reconstruction</strong><small>{selectedFile?.name ?? "GAMUS urban demo"}</small></div><span className="project-card-status">Live</span></div><div className="project-card"><div className="project-preview preview-b" /><div className="project-card-copy"><strong>Benchmark examples</strong><small>Reference comparisons</small></div><span className="project-card-status">Data</span></div></> : <div className="analysis-panel"><div className="analysis-icon"><Icon name="pie" /></div><h2>Analysis</h2><p>Inspect height, slope, and semantic coverage after loading a reconstruction.</p><button className="panel-action" onClick={() => setActiveNav("Examples")}>Open examples <span>→</span></button></div>}<div className="panel-footer"><span className={`status-dot ${backendStatus}`} /> {statusLabel}<span className="version-label">v0.1</span></div></aside>
+    <div className="workspace"><header className="topbar"><div className="breadcrumbs"><BrandMark /><span>Dharvi</span><span className="breadcrumb-separator">/</span><strong>{activeNav}</strong>{selectedFile && <><span className="breadcrumb-separator">/</span><strong>{selectedFile.name}</strong></>}</div><div className="topbar-actions"><button className={`publish-button ${publishState ? "published" : ""}`} onClick={() => setPublishState(true)}>{publishState ? <><Icon name="check" /> Published</> : "Publish"}</button><button className="avatar-button" aria-label="User profile">K</button></div></header>
+      <div className="workspace-content">{!panelOpen && <button className="open-panel-button" onClick={() => setPanelOpen(true)}><Icon name="layers" /> Layers</button>}<div className="map-stage"><div className="map-label map-label-one">Victoria</div><div className="map-label map-label-two">GAMUS reconstruction</div>{activeNav === "New reconstruction" && predictionState === "success" && prediction ? <ReconstructionViewer heightData={prediction.heightData} gridSize={prediction.gridSize} maxHeight={prediction.maxHeight} buildingRegions={prediction.buildingRegions} semanticData={prediction.semanticData} semanticGridSize={prediction.semanticGridSize} semanticClasses={prediction.semanticClasses} layers={layers} inputImageUrl={`http://localhost:8000${prediction.inputImageUrl}`} /> : <div className="empty-map-state"><div className="empty-map-icon"><Icon name="earth" /></div><h1>{predictionState === "processing" ? "Preparing your reconstruction" : predictionState === "error" ? "We could not process that image" : "Bring a scene to life"}</h1><p>{predictionState === "error" ? errorMessage : "Upload an aerial image or open the GAMUS example to explore a 3D scene."}</p>{predictionState === "processing" ? <div className="progress-track"><span /></div> : <div className="empty-map-actions"><button className="primary-button" onClick={() => fileInputRef.current?.click()}><Icon name="plus" /> Upload aerial image</button><button className="secondary-button" onClick={() => void startPrediction(undefined, "gamus-urban-demo")}>Open GAMUS example</button></div>}<input ref={fileInputRef} className="visually-hidden" type="file" accept={ACCEPTED_FORMATS} onChange={(event) => handleFile(event.target.files?.[0])} /></div>}{activeNav === "Examples" && (benchmarkState === "ready" && benchmarks.length ? <div className="workspace-overlay"><BenchmarkWorkspace benchmarks={benchmarks} /></div> : <div className="workspace-overlay"><section className="empty-panel"><div className="panel-icon"><Icon name="layers" /></div><h2>{benchmarkState === "error" ? "Benchmark unavailable" : "Loading benchmark examples"}</h2><p>{benchmarkState === "error" ? "Start the backend and try again to load reference comparisons." : "Preparing reference comparisons and accuracy metrics."}</p></section></div>)}{activeNav === "About" && <div className="workspace-overlay"><section className="empty-panel"><div className="panel-icon"><Icon name="book" /></div><h2>About Dharvi</h2><p>Explore estimated height above ground from aerial imagery using the fine-tuned DepthAnything V2 model trained on GAMUS.</p></section></div>}{activeNav === "New reconstruction" && predictionState === "success" && prediction && <div className="workspace-inspector"><PredictionInspector prediction={prediction} layers={layers} onToggleLayer={(layer) => setLayers((current) => ({ ...current, [layer]: !current[layer] }))} /></div>}<div className="map-controls"><button aria-label="Search"><Icon name="search" /></button><button aria-label="Zoom in"><Icon name="zoomIn" /></button><button aria-label="Zoom out"><Icon name="zoomOut" /></button><button aria-label="Fit view"><Icon name="fit" /></button></div></div>
+      <div className="style-panel" aria-label="Layer style settings"><div className="style-panel-header"><div><p>Selected layer</p><h2>{selectedLayerLabel}</h2></div><button aria-label="More layer options"><Icon name="dots" /></button></div><div className="style-tabs">{(["General", "Data", "Style", "Hover", "Click"] as PanelTab[]).map((tab) => <button key={tab} className={panelTab === tab ? "active" : ""} onClick={() => setPanelTab(tab)}>{tab}</button>)}</div>{panelTab === "Style" ? <div className="style-controls"><div className="control-heading"><span>Display style</span><Icon name="dots" /></div><button className="select-control">{selectedLayer === "semantic" ? "Semantic overlay" : selectedLayer === "rgb" ? "RGB texture" : "Height surface"}<Icon name="chevron" /></button><div className="control-grid"><label><span>Opacity</span><strong>{opacity}%</strong><input type="range" min="0" max="100" value={opacity} onChange={(event) => setOpacity(Number(event.target.value))} /></label><label><span>Density threshold</span><strong>{density}</strong><input type="range" min="32" max="256" value={density} onChange={(event) => setDensity(Number(event.target.value))} /></label></div><label className="full-control"><span>Size <strong>{size} px</strong></span><input type="range" min="1" max="20" value={size} onChange={(event) => setSize(Number(event.target.value))} /></label><div className="border-control"><div className="control-heading"><span>Border</span><button aria-label="Remove border"><Icon name="close" /></button></div><div className="control-grid"><label><span>Border color</span><button className="select-control">Select <Icon name="chevron" /></button></label><label><span>Color offset</span><strong>3</strong><input type="range" min="0" max="8" defaultValue="3" /></label></div><label className="full-control"><span>Width <strong>1 px</strong></span><input type="range" min="0" max="5" defaultValue="1" /></label></div><div className="add-control"><button>＋ Label</button><button>＋ Badge</button></div></div> : <div className="tab-placeholder"><div className="placeholder-icon"><Icon name={panelTab === "Data" ? "grid" : panelTab === "General" ? "layers" : "info"} /></div><h3>{panelTab} settings</h3><p>Controls for {selectedLayerLabel.toLowerCase()} will appear here.</p></div>}</div>
+    </div></div></section></main>;
 }
 
 export { App };
