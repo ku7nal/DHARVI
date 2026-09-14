@@ -52,6 +52,21 @@ function App() {
     if (selectedLayer === "buildings") setLayers((current) => ({ ...current, city: true, buildings: true }));
     if (selectedLayer === "rgb") setLayers((current) => ({ ...current, rgb: true }));
   }, [selectedLayer]);
+  useEffect(() => {
+    const stage = document.querySelector<HTMLElement>(".map-stage");
+    const controls = stage?.querySelectorAll<HTMLButtonElement>(".map-controls button");
+    if (!stage || !controls || controls.length < 4) return;
+    let zoom = 1;
+    const updateZoom = (nextZoom: number) => { zoom = Math.min(1.8, Math.max(0.7, nextZoom)); stage.style.setProperty("--canvas-scale", String(zoom)); };
+    const handlers = [
+      () => { stage.setAttribute("aria-label", "Workspace search control active"); },
+      () => updateZoom(zoom + 0.15),
+      () => updateZoom(zoom - 0.15),
+      () => updateZoom(1),
+    ];
+    controls.forEach((control, index) => control.addEventListener("click", handlers[index]));
+    return () => controls.forEach((control, index) => control.removeEventListener("click", handlers[index]));
+  }, [activeNav, predictionState]);
 
   function handleFile(file: File | undefined) { if (!file) return; setSelectedFile(file); void startPrediction(file); }
   async function startPrediction(file?: File, exampleId?: string) {
