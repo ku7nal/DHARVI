@@ -9,7 +9,7 @@ type PredictionState = "idle" | "processing" | "success" | "error";
 
 const ACCEPTED_FORMATS = ".png,.jpg,.jpeg,.tif,.tiff";
 
-function Icon({ name }: { name: "plus" | "layers" | "book" | "search" | "bell" | "chevron" | "pie" | "print" | "info" }) {
+function Icon({ name }: { name: "plus" | "layers" | "book" | "search" | "bell" | "chevron" }) {
   const paths = {
     plus: <><path d="M12 5v14M5 12h14" /></>,
     layers: <><path d="m12 3 8 4.5-8 4.5-8-4.5L12 3Z" /><path d="m4 12 8 4.5 8-4.5M4 16.5 12 21l8-4.5" /></>,
@@ -17,9 +17,6 @@ function Icon({ name }: { name: "plus" | "layers" | "book" | "search" | "bell" |
     search: <><circle cx="10.8" cy="10.8" r="6.8" /><path d="m16 16 4.5 4.5" /></>,
     bell: <><path d="M18 9a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9ZM10 22h4" /></>,
     chevron: <path d="m8 10 4 4 4-4" />,
-    pie: <><path d="M12 3v9h9A9 9 0 1 1 12 3Z" /><path d="M15 3.5A9 9 0 0 1 20.5 9H15V3.5Z" /></>,
-    print: <><path d="M6 9V3h12v6M6 17H4a2 2 0 0 1-2-2v-4a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v4a2 2 0 0 1-2 2h-2" /><path d="M6 14h12v7H6z" /></>,
-    info: <><circle cx="12" cy="12" r="9" /><path d="M12 11v6M12 7.5v.5" /></>,
   };
 
   return (
@@ -30,7 +27,7 @@ function Icon({ name }: { name: "plus" | "layers" | "book" | "search" | "bell" |
 }
 
 function BrandMark() {
-  return <div className="brand-mark" aria-hidden="true"><span className="globe-highlight" /><span className="globe-line globe-line-one" /><span className="globe-line globe-line-two" /></div>;
+  return <div className="brand-mark" aria-hidden="true">D</div>;
 }
 
 function App() {
@@ -118,15 +115,25 @@ function App() {
           </div>
 
           <nav className="navigation" aria-label="Main navigation">
-            <button className={`nav-item rail-item ${activeNav !== "About" ? "active" : ""}`} aria-label="Layers" onClick={() => setActiveNav("Examples")}><Icon name="layers" /><span>Examples</span></button>
-            <button className={`nav-item rail-item ${activeNav === "About" ? "active" : ""}`} aria-label="Analysis" onClick={() => setActiveNav("About")}><Icon name="pie" /><span>About</span></button>
+            <p className="nav-label">Workspace</p>
+            <button className={`nav-item ${activeNav === "New reconstruction" ? "active" : ""}`} onClick={() => setActiveNav("New reconstruction")}>
+              <Icon name="plus" />
+              <span>New reconstruction</span>
+            </button>
+            <button className={`nav-item ${activeNav === "Examples" ? "active" : ""}`} onClick={() => setActiveNav("Examples")}>
+              <Icon name="layers" />
+              <span>Examples</span>
+            </button>
+            <button className={`nav-item ${activeNav === "About" ? "active" : ""}`} onClick={() => setActiveNav("About")}>
+              <Icon name="book" />
+              <span>About</span>
+            </button>
           </nav>
 
           <div className="sidebar-footer">
-            <button className="rail-footer-button" aria-label="Print"><Icon name="print" /></button>
-            <button className="rail-footer-button" aria-label="Information"><Icon name="info" /></button>
-            <span className="rail-divider" />
-            <button className="rail-footer-button rail-bottom-collapse" aria-label={sidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"} onClick={() => setSidebarCollapsed((collapsed) => !collapsed)}><Icon name="chevron" /></button>
+            <span className={`status-dot ${backendStatus}`} />
+            <span>{statusLabel}</span>
+            <span className="version-label">v0.1</span>
           </div>
         </aside>
 
