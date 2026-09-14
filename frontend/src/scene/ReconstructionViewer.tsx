@@ -18,7 +18,15 @@ type ReconstructionViewerProps = {
   semanticData?: number[] | null;
   semanticGridSize?: number | null;
   semanticClasses?: SemanticClass[];
+  visualStyle?: { opacity: number; density: number; size: number };
 };
+
+type ViewerStyle = { opacity: number; density: number; size: number };
+let activeViewerStyle: ViewerStyle = { opacity: 25, density: 128, size: 8 };
+
+function setViewerStyle(style: ViewerStyle) {
+  activeViewerStyle = style;
+}
 
 type CameraMode = "isometric" | "top" | "fly";
 
@@ -211,12 +219,12 @@ function StylizedCity({ heightData, gridSize, maxHeight, exaggeration, buildingR
   </group>;
 }
 
-function HeightSurface({ heightData, gridSize, maxHeight, exaggeration, layers }: ReconstructionViewerProps & { exaggeration: number }) {
+function HeightSurface({ heightData, gridSize, maxHeight, exaggeration, layers, visualStyle }: ReconstructionViewerProps & { exaggeration: number; visualStyle: { opacity: number; density: number; size: number } }) {
   const geometry = useMemo(() => createSurfaceGeometry(heightData, gridSize, maxHeight, exaggeration), [exaggeration, gridSize, heightData, maxHeight]);
 
   if (!layers.height && !layers.rgb) return null;
   const color = layers.height ? "#8177b6" : "#aeb8c5";
-  return <mesh geometry={geometry} castShadow receiveShadow><meshStandardMaterial color={color} roughness={0.82} metalness={0.02} wireframe={layers.wireframe} /></mesh>;
+  return <mesh geometry={geometry} castShadow receiveShadow><meshStandardMaterial color={color} roughness={0.82} metalness={0.02} opacity={(visualStyle?.opacity ?? 100) / 100} transparent={(visualStyle?.opacity ?? 100) < 100} wireframe={layers.wireframe} /></mesh>;
 }
 
 function SlopeSurface({ heightData, gridSize, maxHeight, exaggeration, enabled, wireframe }: { heightData: number[]; gridSize: number; maxHeight: number; exaggeration: number; enabled: boolean; wireframe: boolean }) {
@@ -232,7 +240,7 @@ function RgbSurface({ heightData, gridSize, maxHeight, exaggeration, inputImageU
   return <mesh geometry={geometry} position={[0, 0.015, 0]}><meshBasicMaterial map={texture} polygonOffset polygonOffsetFactor={-1} polygonOffsetUnits={-1} /></mesh>;
 }
 
-function SceneContents({ heightData, gridSize, maxHeight, exaggeration, cameraMode, layers, inputImageUrl, buildingRegions, semanticData, semanticGridSize, semanticClasses, onInspect }: ReconstructionViewerProps & { exaggeration: number; cameraMode: CameraMode; onInspect: (point: THREE.Vector3) => void }) {
+function SceneContents({ heightData, gridSize, maxHeight, exaggeration, cameraMode, layers, inputImageUrl, buildingRegions, semanticData, semanticGridSize, semanticClasses, visualStyle, onInspect }: ReconstructionViewerProps & { exaggeration: number; cameraMode: CameraMode; visualStyle: { opacity: number; density: number; size: number }; onInspect: (point: THREE.Vector3) => void }) {
   const cameraPosition: [number, number, number] = cameraMode === "isometric" ? [12, 11, 14] : cameraMode === "top" ? [0, 18, 0.01] : [8, 5, 8];
 
   return (
@@ -243,7 +251,7 @@ function SceneContents({ heightData, gridSize, maxHeight, exaggeration, cameraMo
       <directionalLight intensity={0.38} position={[-8, 5, -4]} color="#d7d1ff" />
       {layers.city && <Suspense fallback={null}><StylizedCity heightData={heightData} gridSize={gridSize} maxHeight={maxHeight} exaggeration={exaggeration} buildingRegions={buildingRegions} wireframe={layers.wireframe} semanticData={semanticData} semanticGridSize={semanticGridSize} semanticClasses={semanticClasses} layers={layers} /></Suspense>}
       {layers.city && <ContactShadows position={[0, 0.01, 0]} opacity={0.32} scale={20} blur={1.4} far={5} resolution={256} color="#555064" />}
-      <HeightSurface heightData={heightData} gridSize={gridSize} maxHeight={maxHeight} exaggeration={exaggeration} layers={layers} inputImageUrl={inputImageUrl} />
+      <HeightSurface heightData={heightData} gridSize={gridSize} maxHeight={maxHeight} exaggeration={exaggeration} layers={layers} inputImageUrl={inputImageUrl} visualStyle={visualStyle} />
       <SlopeSurface heightData={heightData} gridSize={gridSize} maxHeight={maxHeight} exaggeration={exaggeration} enabled={layers.slope} wireframe={layers.wireframe} />
       {layers.rgb && <Suspense fallback={null}><RgbSurface heightData={heightData} gridSize={gridSize} maxHeight={maxHeight} exaggeration={exaggeration} layers={layers} inputImageUrl={inputImageUrl} /></Suspense>}
       <InspectionPlane heightData={heightData} gridSize={gridSize} maxHeight={maxHeight} onInspect={onInspect} />
@@ -254,7 +262,7 @@ function SceneContents({ heightData, gridSize, maxHeight, exaggeration, cameraMo
   );
 }
 
-function ReconstructionViewer({ heightData, gridSize, maxHeight, layers, inputImageUrl, buildingRegions, semanticData, semanticGridSize, semanticClasses }: ReconstructionViewerProps) {
+function ReconstructionViewer({ heightData, gridSize, maxHeight, layers, inputImageUrl, buildingRegions, semanticData, semanticGridSize, semanticClasses, visualStyle = activeViewerStyle }: ReconstructionViewerProps) {
   const [cameraMode, setCameraMode] = useState<CameraMode | "fly">("isometric");
   const [exaggeration, setExaggeration] = useState(1);
   const [resetKey, setResetKey] = useState(0);
@@ -265,7 +273,7 @@ function ReconstructionViewer({ heightData, gridSize, maxHeight, layers, inputIm
     <div className="reconstruction-viewer">
       <Canvas key={`${cameraMode}-${resetKey}`} shadows dpr={[1, renderDpr]} camera={{ position: [12, 11, 14], fov: 36 }}>
         <PerformanceMonitor onDecline={() => setRenderDpr(1)} onIncline={() => setRenderDpr(1.5)} />
-        <SceneContents heightData={heightData} gridSize={gridSize} maxHeight={maxHeight} exaggeration={exaggeration} cameraMode={cameraMode} layers={layers} inputImageUrl={inputImageUrl} buildingRegions={buildingRegions} semanticData={semanticData} semanticGridSize={semanticGridSize} semanticClasses={semanticClasses} onInspect={(point) => setInspection(inspectHeight(heightData, gridSize, maxHeight, exaggeration, point))} />
+        <SceneContents heightData={heightData} gridSize={gridSize} maxHeight={maxHeight} exaggeration={exaggeration} cameraMode={cameraMode} layers={layers} inputImageUrl={inputImageUrl} buildingRegions={buildingRegions} semanticData={semanticData} semanticGridSize={semanticGridSize} semanticClasses={semanticClasses} visualStyle={visualStyle} onInspect={(point) => setInspection(inspectHeight(heightData, gridSize, maxHeight, exaggeration, point))} />
       </Canvas>
       <div className="scene-toolbar" aria-label="Scene controls">
         <button className={cameraMode === "isometric" ? "selected" : ""} onClick={() => setCameraMode("isometric")}>Isometric</button>
@@ -282,4 +290,4 @@ function ReconstructionViewer({ heightData, gridSize, maxHeight, layers, inputIm
   );
 }
 
-export { ReconstructionViewer };
+export { ReconstructionViewer, setViewerStyle };

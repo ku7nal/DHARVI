@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { BenchmarkWorkspace } from "./components/BenchmarkWorkspace";
 import { PredictionInspector } from "./components/PredictionInspector";
-import { ReconstructionViewer } from "./scene/ReconstructionViewer";
+import { ReconstructionViewer, setViewerStyle } from "./scene/ReconstructionViewer";
 import { DEFAULT_SCENE_LAYERS, type BenchmarkResult, type PredictionResult, type SceneLayers } from "./types";
 
 type NavItem = "New reconstruction" | "Examples" | "About";
@@ -45,6 +45,13 @@ function App() {
     setBenchmarkState("loading");
     fetch("http://localhost:8000/api/benchmarks").then(async (response) => { const body = await response.json() as { benchmarks?: BenchmarkResult[]; detail?: string }; if (!response.ok || !body.benchmarks?.length) throw new Error(body.detail ?? "Benchmark examples could not be loaded."); setBenchmarks(body.benchmarks); setBenchmarkState("ready"); }).catch(() => setBenchmarkState("error"));
   }, [activeNav, benchmarkState]);
+  useEffect(() => { setViewerStyle({ opacity, density, size }); }, [density, opacity, size]);
+  useEffect(() => {
+    if (selectedLayer === "height") setLayers((current) => ({ ...current, height: true }));
+    if (selectedLayer === "semantic") setLayers((current) => ({ ...current, city: true, ground: true }));
+    if (selectedLayer === "buildings") setLayers((current) => ({ ...current, city: true, buildings: true }));
+    if (selectedLayer === "rgb") setLayers((current) => ({ ...current, rgb: true }));
+  }, [selectedLayer]);
 
   function handleFile(file: File | undefined) { if (!file) return; setSelectedFile(file); void startPrediction(file); }
   async function startPrediction(file?: File, exampleId?: string) {
