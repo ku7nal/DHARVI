@@ -9,10 +9,15 @@ function assertHealthyGeometry(geometry: ReturnType<typeof createSemanticSurface
 
 function maxCellEdgeHeightDifference(geometry: ReturnType<typeof createSemanticSurfaceGeometry>): number {
   const positions = geometry.getAttribute("position");
+  const index = geometry.getIndex();
   let maximum = 0;
-  for (let cell = 0; cell < positions.count / 4; cell += 1) {
-    const firstVertex = cell * 4;
-    for (const nextVertex of [1, 2, 3]) maximum = Math.max(maximum, Math.abs(positions.getY(firstVertex) - positions.getY(firstVertex + nextVertex)));
+  if (!index) return maximum;
+  for (let triangle = 0; triangle < index.count; triangle += 3) {
+    const firstVertex = index.getX(triangle);
+    for (const offset of [1, 2]) {
+      const nextVertex = index.getX(triangle + offset);
+      maximum = Math.max(maximum, Math.abs(positions.getY(firstVertex) - positions.getY(nextVertex)));
+    }
   }
   return maximum;
 }
@@ -56,7 +61,7 @@ greenSpikeGeometry.dispose();
 const isolatedBuilding = Array.from({ length: 16 }, () => GROUND);
 isolatedBuilding[5] = BUILDING;
 const groundGeometry = createSemanticSurfaceGeometry(terrain.heights, isolatedBuilding, 4, GROUND, 90, 1);
-if (groundGeometry.getAttribute("position").count !== 15 * 4) throw new Error("ground geometry lost cells around the building");
+if ((groundGeometry.getIndex()?.count ?? 0) !== 15 * 6) throw new Error("ground geometry lost cells around the building");
 assertHealthyGeometry(groundGeometry, "ground");
 groundGeometry.dispose();
 
@@ -128,12 +133,11 @@ const budgetTerrain = prepareSemanticTerrain(
 );
 const budgetGeometries = [OTHERS, GROUND, LOW_VEGETATION, BUILDING, WATER, ROAD, TREE].map((classId) => createSemanticSurfaceGeometry(budgetTerrain.heights, budgetTerrain.classes, budgetGridSize, classId, 1, 1));
 const totalBudgetCells = budgetGeometries.reduce((total, geometry) => {
-  const positions = geometry.getAttribute("position").count;
   const indices = geometry.getIndex()?.count ?? 0;
-  if (positions % 4 !== 0 || indices % 6 !== 0) throw new Error("semantic geometry has an invalid tile shape");
+  if (indices % 6 !== 0) throw new Error("semantic geometry has an invalid tile shape");
   assertHealthyGeometry(geometry, "256x256 semantic");
   geometry.dispose();
-  return total + positions / 4;
+  return total + indices / 6;
 }, 0);
 if (budgetGeometries.length !== expectedPalette.length || totalBudgetCells !== budgetGridSize ** 2) throw new Error("semantic geometry budget is not bounded to one tile per cell");
 

@@ -177,32 +177,50 @@ function prepareSemanticTerrain(
 function createSemanticSurfaceGeometry(terrainHeights: number[], classes: number[], gridSize: number, classId: number, maxHeight: number, exaggeration: number, stableHeight?: number) {
   const positions: number[] = [];
   const indices: number[] = [];
+  const vertexIndices = new Map<string, number>();
   const verticalScale = 3.6 / Math.max(maxHeight, 1) * exaggeration;
+  const isStableVertex = (row: number, column: number) => {
+    if (!Number.isFinite(stableHeight)) return false;
+    for (const rowDelta of [-1, 0]) {
+      for (const columnDelta of [-1, 0]) {
+        const cellRow = row + rowDelta;
+        const cellColumn = column + columnDelta;
+        if (cellRow < 0 || cellRow >= gridSize || cellColumn < 0 || cellColumn >= gridSize) continue;
+        const cellClass = classes[cellRow * gridSize + cellColumn];
+        if (cellClass === ROAD || cellClass === WATER) return true;
+      }
+    }
+    return false;
+  };
   const heightAtVertex = (row: number, column: number) => {
     const safeRow = Math.max(0, Math.min(gridSize - 1, row));
     const safeColumn = Math.max(0, Math.min(gridSize - 1, column));
     const index = safeRow * gridSize + safeColumn;
-    const height = (classes[index] === ROAD || classes[index] === WATER) && Number.isFinite(stableHeight)
+    const height = isStableVertex(row, column)
       ? stableHeight!
       : terrainHeights[index] ?? 0;
     return height * verticalScale + 0.012;
+  };
+  const vertexAt = (row: number, column: number) => {
+    const key = `${row}:${column}`;
+    const existing = vertexIndices.get(key);
+    if (existing !== undefined) return existing;
+    const index = positions.length / 3;
+    const x = (column / gridSize - 0.5) * WORLD_WIDTH;
+    const z = (row / gridSize - 0.5) * WORLD_DEPTH;
+    positions.push(x, heightAtVertex(row, column), z);
+    vertexIndices.set(key, index);
+    return index;
   };
   for (let row = 0; row < gridSize; row += 1) {
     for (let column = 0; column < gridSize; column += 1) {
       const index = row * gridSize + column;
       if (classes[index] !== classId) continue;
-      const base = positions.length / 3;
-      const left = (column / gridSize - 0.5) * WORLD_WIDTH;
-      const right = ((column + 1) / gridSize - 0.5) * WORLD_WIDTH;
-      const top = (row / gridSize - 0.5) * WORLD_DEPTH;
-      const bottom = ((row + 1) / gridSize - 0.5) * WORLD_DEPTH;
-      positions.push(
-        left, heightAtVertex(row + 1, column), bottom,
-        right, heightAtVertex(row + 1, column + 1), bottom,
-        right, heightAtVertex(row, column + 1), top,
-        left, heightAtVertex(row, column), top,
-      );
-      indices.push(base, base + 1, base + 2, base, base + 2, base + 3);
+      const bottomLeft = vertexAt(row + 1, column);
+      const bottomRight = vertexAt(row + 1, column + 1);
+      const topRight = vertexAt(row, column + 1);
+      const topLeft = vertexAt(row, column);
+      indices.push(bottomLeft, bottomRight, topRight, bottomLeft, topRight, topLeft);
     }
   }
   const geometry = new THREE.BufferGeometry();
