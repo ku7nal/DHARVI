@@ -9,3 +9,18 @@ function routePointToSceneCell(point: RoutePoint, routeGridSize: number, sceneGr
 }
 
 export { routePointToSceneCell };
+
+function expandDebrisZones(zones: RoutePoint[], gridSize: number): RoutePoint[] {
+  const cells = new Map<string, RoutePoint>();
+  zones.forEach((zone) => {
+    for (let row = zone.row - 1; row <= zone.row + 1; row += 1) {
+      for (let column = zone.column - 1; column <= zone.column + 1; column += 1) {
+        if (row < 0 || row >= gridSize || column < 0 || column >= gridSize) continue;
+        cells.set(`${row}:${column}`, { row, column });
+      }
+    }
+  });
+  return [...cells.values()];
+}
+
+export { expandDebrisZones };

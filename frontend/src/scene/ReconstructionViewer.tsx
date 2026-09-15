@@ -5,7 +5,7 @@ import * as THREE from "three";
 import type { BuildingRegion, RoutePoint, RoutePoints, RouteResult, SceneLayers, SemanticClass } from "../types";
 import { createBuildingExtrusionGeometry, createRoofGeometry, getSafeBuildingHeight } from "../buildingGeometry";
 import { getBuildingLayout } from "../sceneGeometry";
-import { routePointToSceneCell } from "../routePlanner";
+import { expandDebrisZones, routePointToSceneCell } from "../routePlanner";
 import { MAX_TREE_INSTANCES, getBuildingDetailLevel, validateSceneQuality } from "../sceneQuality";
 import { BUILDING, SEMANTIC_LAYER_DEFINITIONS, TREE, createSemanticSurfaceGeometry, getSemanticClassColor, getVisibleSemanticClassIds, prepareSemanticTerrain } from "../semanticTerrain";
 
@@ -21,7 +21,8 @@ type ReconstructionViewerProps = {
   semanticClasses?: SemanticClass[];
   route?: RouteResult | null;
   routePoints?: RoutePoints;
-  routeSelectionMode?: "idle" | "start" | "destination";
+  routeSelectionMode?: "idle" | "start" | "destination" | "debris";
+  debrisZones?: RoutePoint[];
   onRoutePointSelect?: (point: RoutePoint) => void;
 };
 
@@ -269,7 +270,7 @@ function routeMarker(point: RoutePoint, gridSize: number, heightData: number[], 
   </mesh>;
 }
 
-function RouteOverlay({ route, routePoints, heightData, gridSize, maxHeight }: { route?: RouteResult | null; routePoints?: RoutePoints; heightData: number[]; gridSize: number; maxHeight: number }) {
+function RouteOverlay({ route, routePoints, debrisZones, heightData, gridSize, maxHeight }: { route?: RouteResult | null; routePoints?: RoutePoints; debrisZones?: RoutePoint[]; heightData: number[]; gridSize: number; maxHeight: number }) {
   const verticalScale = 3.6 / Math.max(maxHeight, 1);
   const pathPoints = route?.path.map((point) => {
     const scenePoint = routePointToSceneCell(point, route.gridSize, gridSize);
@@ -286,6 +287,10 @@ function RouteOverlay({ route, routePoints, heightData, gridSize, maxHeight }: {
     {pathPoints.length > 1 && <Line points={pathPoints} color="#f26d4f" lineWidth={4} />}
     {start && routeMarker(start, gridSize, heightData, maxHeight, "#278f72")}
     {destination && routeMarker(destination, gridSize, heightData, maxHeight, "#d95757")}
+    {debrisZones && expandDebrisZones(debrisZones, gridSize).map((cell) => <mesh key={`debris-${cell.row}:${cell.column}`} position={[(cell.column / Math.max(gridSize - 1, 1) - 0.5) * WORLD_WIDTH, 0.18, (cell.row / Math.max(gridSize - 1, 1) - 0.5) * WORLD_DEPTH]}>
+      <boxGeometry args={[WORLD_WIDTH / gridSize * 0.94, 0.05, WORLD_DEPTH / gridSize * 0.94]} />
+      <meshBasicMaterial color="#d95757" transparent opacity={0.48} />
+    </mesh>)}
   </group>;
 }
 
@@ -376,7 +381,7 @@ function RgbSurface({ heightData, gridSize, maxHeight, exaggeration, inputImageU
   return <mesh geometry={geometry} position={[0, 0.015, 0]}><meshBasicMaterial map={texture} polygonOffset polygonOffsetFactor={-1} polygonOffsetUnits={-1} /></mesh>;
 }
 
-function SceneContents({ heightData, gridSize, maxHeight, exaggeration, cameraMode, presentationMode, layers, inputImageUrl, buildingRegions, semanticData, semanticGridSize, semanticClasses, onInspect, route, routePoints, routeSelectionMode, onRoutePointSelect }: ReconstructionViewerProps & { exaggeration: number; cameraMode: CameraMode; presentationMode: boolean; onInspect: (point: THREE.Vector3) => void }) {
+function SceneContents({ heightData, gridSize, maxHeight, exaggeration, cameraMode, presentationMode, layers, inputImageUrl, buildingRegions, semanticData, semanticGridSize, semanticClasses, onInspect, route, routePoints, debrisZones, routeSelectionMode, onRoutePointSelect }: ReconstructionViewerProps & { exaggeration: number; cameraMode: CameraMode; presentationMode: boolean; onInspect: (point: THREE.Vector3) => void }) {
   const cameraPosition: [number, number, number] = cameraMode === "isometric" ? [12, 11, 14] : cameraMode === "top" ? [0, 18, 0.01] : [8, 5, 8];
 
   return (
@@ -391,7 +396,7 @@ function SceneContents({ heightData, gridSize, maxHeight, exaggeration, cameraMo
       <HeightSurface heightData={heightData} gridSize={gridSize} maxHeight={maxHeight} exaggeration={exaggeration} layers={layers} inputImageUrl={inputImageUrl} />
       <SlopeSurface heightData={heightData} gridSize={gridSize} maxHeight={maxHeight} exaggeration={exaggeration} enabled={layers.slope} wireframe={layers.wireframe} />
       {layers.rgb && <Suspense fallback={null}><RgbSurface heightData={heightData} gridSize={gridSize} maxHeight={maxHeight} exaggeration={exaggeration} layers={layers} inputImageUrl={inputImageUrl} /></Suspense>}
-      <RouteOverlay route={route} routePoints={routePoints} heightData={heightData} gridSize={gridSize} maxHeight={maxHeight} />
+      <RouteOverlay route={route} routePoints={routePoints} debrisZones={debrisZones} heightData={heightData} gridSize={gridSize} maxHeight={maxHeight} />
       {(!presentationMode || routeSelectionMode !== "idle") && <InspectionPlane heightData={heightData} gridSize={gridSize} maxHeight={maxHeight} onInspect={onInspect} onSelect={routeSelectionMode === "idle" ? undefined : onRoutePointSelect} />}
       {!presentationMode && <gridHelper args={[22, 22, "#d5d1e4", "#e5e3ed"]} position={[0, -0.04, 0]} />}
       {cameraMode === "fly" ? <FlyControls makeDefault movementSpeed={8} rollSpeed={0.35} dragToLook /> : <OrbitControls makeDefault target={[0, 0.8, 0]} enableDamping dampingFactor={0.08} minDistance={5} maxDistance={28} maxPolarAngle={Math.PI * 0.48} />}
@@ -415,7 +420,7 @@ function SceneControlIcon({ name }: { name: "search" | "plus" | "minus" | "focus
   return <svg aria-hidden="true" className="scene-control-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">{paths[name]}</svg>;
 }
 
-function ReconstructionViewer({ heightData, gridSize, maxHeight, layers, inputImageUrl, buildingRegions, semanticData, semanticGridSize, semanticClasses, route, routePoints, routeSelectionMode = "idle", onRoutePointSelect }: ReconstructionViewerProps) {
+function ReconstructionViewer({ heightData, gridSize, maxHeight, layers, inputImageUrl, buildingRegions, semanticData, semanticGridSize, semanticClasses, route, routePoints, debrisZones, routeSelectionMode = "idle", onRoutePointSelect }: ReconstructionViewerProps) {
   const [cameraMode, setCameraMode] = useState<CameraMode | "fly">("isometric");
   const [exaggeration, setExaggeration] = useState(1);
   const [resetKey, setResetKey] = useState(0);
@@ -430,7 +435,7 @@ function ReconstructionViewer({ heightData, gridSize, maxHeight, layers, inputIm
     <div className="reconstruction-viewer">
       <Canvas key={`${cameraMode}-${presentationMode}-${resetKey}`} shadows dpr={[1, renderDpr]} gl={{ antialias: true, toneMapping: THREE.ACESFilmicToneMapping, toneMappingExposure: 1.08 }} camera={{ position: [12, 11, 14], fov: 36 }}>
         <PerformanceMonitor onDecline={() => setRenderDpr(1)} onIncline={() => setRenderDpr(1.5)} />
-        <SceneContents heightData={heightData} gridSize={gridSize} maxHeight={maxHeight} exaggeration={exaggeration} cameraMode={cameraMode} presentationMode={presentationMode} layers={{ ...layers, rgb: showSourceImage }} inputImageUrl={inputImageUrl} buildingRegions={buildingRegions} semanticData={semanticData} semanticGridSize={semanticGridSize} semanticClasses={semanticClasses} route={route} routePoints={routePoints} routeSelectionMode={routeSelectionMode} onRoutePointSelect={onRoutePointSelect} onInspect={(point) => setInspection(inspectHeight(heightData, gridSize, maxHeight, exaggeration, point))} />
+        <SceneContents heightData={heightData} gridSize={gridSize} maxHeight={maxHeight} exaggeration={exaggeration} cameraMode={cameraMode} presentationMode={presentationMode} layers={{ ...layers, rgb: showSourceImage }} inputImageUrl={inputImageUrl} buildingRegions={buildingRegions} semanticData={semanticData} semanticGridSize={semanticGridSize} semanticClasses={semanticClasses} route={route} routePoints={routePoints} debrisZones={debrisZones} routeSelectionMode={routeSelectionMode} onRoutePointSelect={onRoutePointSelect} onInspect={(point) => setInspection(inspectHeight(heightData, gridSize, maxHeight, exaggeration, point))} />
       </Canvas>
       <div className="scene-controls" aria-label="Scene controls">
         <button className="scene-control-button" aria-label="Reset view" title="Reset view" onClick={() => setResetKey((key) => key + 1)}><SceneControlIcon name="search" /></button>

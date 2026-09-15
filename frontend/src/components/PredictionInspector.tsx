@@ -1,5 +1,5 @@
 import { useState, type ReactNode } from "react";
-import type { PredictionResult, RoutePoints, RouteResult, SceneLayers } from "../types";
+import type { PredictionResult, RoutePoint, RoutePoints, RouteResult, SceneLayers } from "../types";
 
 const API_BASE = "http://localhost:8000";
 
@@ -11,13 +11,19 @@ type PredictionInspectorProps = {
   onClose: () => void;
   route: RouteResult | null;
   routePoints: RoutePoints;
-  routeSelectionMode: "idle" | "start" | "destination";
+  routeSelectionMode: "idle" | "start" | "destination" | "debris";
   routeState: "idle" | "loading" | "ready" | "error";
   routeError: string | null;
-  onRouteModeChange: (mode: "idle" | "start" | "destination") => void;
+  routeNotice: string | null;
+  avoidWater: boolean;
+  debrisZones: RoutePoint[];
+  onRouteModeChange: (mode: "idle" | "start" | "destination" | "debris") => void;
   onPlanRoute: () => void;
   onLoadDemoRoute: () => void;
   onClearRoute: () => void;
+  onToggleWater: () => void;
+  onClearDebris: () => void;
+  onRemoveDebris: (index: number) => void;
 };
 
 function InspectorSection({ title, children, defaultOpen = true }: { title: string; children: ReactNode; defaultOpen?: boolean }) {
@@ -43,7 +49,7 @@ function LayerToggle({ label, description, active, onClick }: { label: string; d
   );
 }
 
-function PredictionInspector({ isOpen, prediction, layers, onToggleLayer, onClose, route, routePoints, routeSelectionMode, routeState, routeError, onRouteModeChange, onPlanRoute, onLoadDemoRoute, onClearRoute }: PredictionInspectorProps) {
+function PredictionInspector({ isOpen, prediction, layers, onToggleLayer, onClose, route, routePoints, routeSelectionMode, routeState, routeError, routeNotice, avoidWater, debrisZones, onRouteModeChange, onPlanRoute, onLoadDemoRoute, onClearRoute, onToggleWater, onClearDebris, onRemoveDebris }: PredictionInspectorProps) {
   const semanticPayloadAligned = Boolean(
     prediction.semanticGridSize &&
     prediction.semanticGridSize === prediction.gridSize &&
@@ -117,11 +123,18 @@ function PredictionInspector({ isOpen, prediction, layers, onToggleLayer, onClos
             <button className={`route-button ${routeSelectionMode === "start" ? "active" : ""}`} onClick={() => onRouteModeChange("start")}>Select origin</button>
             <button className={`route-button ${routeSelectionMode === "destination" ? "active" : ""}`} onClick={() => onRouteModeChange("destination")}>Select destination</button>
           </div>
+          <div className="route-actions hazard-actions">
+            <button className={`route-button hazard-button ${avoidWater ? "active" : ""}`} onClick={onToggleWater}>Water hazards {avoidWater ? "on" : "off"}</button>
+            <button className={`route-button hazard-button ${routeSelectionMode === "debris" ? "active" : ""}`} onClick={() => onRouteModeChange("debris")}>Mark debris area</button>
+          </div>
+          <div className="route-hazard-summary"><span>{debrisZones.length} debris zone{debrisZones.length === 1 ? "" : "s"}</span>{debrisZones.length > 0 && <button className="text-button" onClick={onClearDebris}>Clear all</button>}</div>
+          {debrisZones.length > 0 && <div className="debris-zone-list">{debrisZones.map((zone, index) => <div key={`${zone.row}:${zone.column}`}><span>Zone {index + 1} · {zone.row}, {zone.column} · 3×3</span><button className="text-button" onClick={() => onRemoveDebris(index)}>Remove</button></div>)}</div>}
           <button className="primary-button route-plan-button" disabled={!routePoints.start || !routePoints.destination || routeState === "loading"} onClick={onPlanRoute}>{routeState === "loading" ? "Planning route…" : "Plan evacuation route"}</button>
           <button className="text-button route-demo-button" onClick={onLoadDemoRoute}>Load demo route <span>→</span></button>
-          {routeSelectionMode !== "idle" && <div className="route-hint">Click a road cell in the scene to set the {routeSelectionMode === "start" ? "origin" : "destination"}.</div>}
+          {routeSelectionMode !== "idle" && <div className="route-hint">Click the scene to {routeSelectionMode === "start" ? "set the origin on a road" : routeSelectionMode === "destination" ? "set the destination on a road" : "mark a temporary debris zone"}.</div>}
           {routeState === "error" && <div className="route-error">{routeError}</div>}
-          {route && <div className="route-result"><strong>Route ready</strong><span>{route.distanceCells} road cells · {route.path.length} waypoints</span><button className="text-button" onClick={onClearRoute}>Clear route</button></div>}
+          {routeNotice && <div className="route-hint">{routeNotice}</div>}
+          {route && <div className="route-result"><strong>Route ready</strong><span>{route.distanceCells} road cells · {route.path.length} waypoints</span><span>{route.hazards.waterAvoidance ? `${route.hazards.waterCells} detected water cells excluded · ${route.hazards.waterBlockedRoadCells} road cells near water blocked` : "Water exclusion disabled"} · {route.hazards.blockedRoadCells} road cells blocked by debris</span><button className="text-button" onClick={onClearRoute}>Clear route</button></div>}
         </> : <div className="inspector-note">Evacuation routing requires an aligned semantic road mask. Use the GAMUS example to try the deterministic route demo.</div>}
       </InspectorSection>
 

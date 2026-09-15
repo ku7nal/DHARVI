@@ -24,6 +24,8 @@ def plan_route(
     grid_size: int,
     start: dict[str, int],
     destination: dict[str, int],
+    blocked_cells: Sequence[dict[str, int]] | None = None,
+    avoid_water: bool = True,
 ) -> dict[str, object]:
     """Return the shortest four-connected path through semantic road cells."""
     if grid_size < 2:
@@ -43,6 +45,32 @@ def plan_route(
         raise ValueError("start must be on a semantic road cell.")
     if labels[index_for(*destination_point)] != ROAD_CLASS:
         raise ValueError("destination must be on a semantic road cell.")
+
+    blocked: set[tuple[int, int]] = set()
+    for point in blocked_cells or []:
+        blocked.add(_validate_point(point, grid_size, "blocked cell"))
+    if start_point in blocked or destination_point in blocked:
+        raise ValueError("The selected route endpoint is inside a debris zone.")
+    water_cells = sum(value == 4 for value in labels)
+    water_blocked: set[tuple[int, int]] = set()
+    if avoid_water:
+        for row in range(grid_size):
+            for column in range(grid_size):
+                if labels[index_for(row, column)] != ROAD_CLASS:
+                    continue
+                if any(
+                    0 <= row + row_delta < grid_size
+                    and 0 <= column + column_delta < grid_size
+                    and labels[index_for(row + row_delta, column + column_delta)] == 4
+                    for row_delta in (-1, 0, 1)
+                    for column_delta in (-1, 0, 1)
+                    if row_delta or column_delta
+                ):
+                    water_blocked.add((row, column))
+    if start_point in water_blocked:
+        raise ValueError("start must not be adjacent to an active water hazard.")
+    if destination_point in water_blocked:
+        raise ValueError("destination must not be adjacent to an active water hazard.")
 
     def heuristic(point: tuple[int, int]) -> int:
         return abs(point[0] - destination_point[0]) + abs(point[1] - destination_point[1])
@@ -66,6 +94,8 @@ def plan_route(
             next_point = (next_row, next_column)
             if labels[index_for(next_row, next_column)] != ROAD_CLASS:
                 continue
+            if next_point in blocked or next_point in water_blocked:
+                continue
             next_cost = cost + 1
             if next_cost >= costs.get(next_point, 1_000_000_000):
                 continue
@@ -74,7 +104,7 @@ def plan_route(
             heapq.heappush(frontier, (next_cost + heuristic(next_point), next_cost, next_row, next_column))
 
     if destination_point not in costs:
-        raise ValueError("No connected road route exists between the selected points.")
+        raise ValueError("No connected road route exists after applying the active hazards.")
 
     path = [destination_point]
     while path[-1] != start_point:
@@ -86,4 +116,11 @@ def plan_route(
         "destination": {"row": destination_point[0], "column": destination_point[1]},
         "gridSize": grid_size,
         "distanceCells": len(path) - 1,
+        "hazards": {
+            "waterCells": water_cells if avoid_water else 0,
+            "waterBlockedRoadCells": len(water_blocked),
+            "debrisCells": len(blocked),
+            "blockedRoadCells": sum(labels[index_for(row, column)] == ROAD_CLASS for row, column in blocked),
+            "waterAvoidance": avoid_water,
+        },
     }

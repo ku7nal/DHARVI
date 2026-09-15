@@ -54,6 +54,18 @@ class HealthEndpointTests(unittest.TestCase):
         self.assertEqual(response.status_code, 422)
         self.assertIn("semantic road cell", response.json()["detail"])
 
+    def test_route_endpoint_applies_debris_cells(self) -> None:
+        response = TestClient(app).post("/api/route", json={
+            "semanticData": [0, 0, 0, 5, 5, 5, 0, 0, 0],
+            "gridSize": 3,
+            "start": {"row": 1, "column": 0},
+            "destination": {"row": 1, "column": 2},
+            "blockedCells": [{"row": 1, "column": 1}],
+        })
+
+        self.assertEqual(response.status_code, 422)
+        self.assertIn("active hazards", response.json()["detail"])
+
     def test_1024_tile_starts_cover_both_image_edges_with_overlap(self) -> None:
         service = DepthAnythingModelService(main_module.CHECKPOINT_PATH)
         starts = service._tile_starts(1024)

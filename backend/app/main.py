@@ -5,7 +5,7 @@ from uuid import uuid4
 
 import numpy as np
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from PIL import Image, ImageDraw, ImageFilter, ImageOps
@@ -77,6 +77,8 @@ class RouteRequest(BaseModel):
     gridSize: int
     start: RoutePoint
     destination: RoutePoint
+    blockedCells: list[RoutePoint] = Field(default_factory=list)
+    avoidWater: bool = True
 
 
 @app.get("/api/health")
@@ -92,6 +94,8 @@ def route(request: RouteRequest) -> dict[str, object]:
             request.gridSize,
             request.start.model_dump(),
             request.destination.model_dump(),
+            [point.model_dump() for point in request.blockedCells],
+            request.avoidWater,
         )
     except ValueError as error:
         raise HTTPException(status_code=422, detail=str(error)) from error

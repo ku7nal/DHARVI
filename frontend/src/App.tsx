@@ -4,6 +4,7 @@ import { PredictionInspector } from "./components/PredictionInspector";
 import humanIcon from "./components/human.png";
 import worldwideIcon from "./components/worldwide.png";
 import { ReconstructionViewer } from "./scene/ReconstructionViewer";
+import { expandDebrisZones } from "./routePlanner";
 import { DEFAULT_SCENE_LAYERS, type BenchmarkResult, type PredictionResult, type RoutePoint, type RoutePoints, type RouteResult, type SceneLayers } from "./types";
 
 type NavItem = "New reconstruction" | "Examples" | "About";
@@ -47,9 +48,12 @@ function App() {
   const [inspectorOpen, setInspectorOpen] = useState(true);
   const [route, setRoute] = useState<RouteResult | null>(null);
   const [routePoints, setRoutePoints] = useState<RoutePoints>({});
-  const [routeSelectionMode, setRouteSelectionMode] = useState<"idle" | "start" | "destination">("idle");
+  const [routeSelectionMode, setRouteSelectionMode] = useState<"idle" | "start" | "destination" | "debris">("idle");
   const [routeState, setRouteState] = useState<"idle" | "loading" | "ready" | "error">("idle");
   const [routeError, setRouteError] = useState<string | null>(null);
+  const [routeNotice, setRouteNotice] = useState<string | null>(null);
+  const [avoidWater, setAvoidWater] = useState(true);
+  const [debrisZones, setDebrisZones] = useState<RoutePoint[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -101,10 +105,13 @@ function App() {
       setRouteSelectionMode("idle");
       setRouteState("idle");
       setRouteError(null);
+      setRouteNotice(null);
+      setAvoidWater(true);
+      setDebrisZones([]);
       if (exampleId === "gamus-urban-demo" && nextPrediction.semanticData?.length && nextPrediction.semanticGridSize) {
         const points = { start: { row: Math.round(nextPrediction.semanticGridSize * 0.47), column: 2 }, destination: { row: Math.round(nextPrediction.semanticGridSize * 0.47), column: nextPrediction.semanticGridSize - 4 } };
         setRoutePoints(points);
-        void requestRoute(points, nextPrediction);
+        void requestRoute(points, nextPrediction, [], true);
       }
       setSelectedFile(file ?? null);
       setInspectorOpen(true);
@@ -116,8 +123,17 @@ function App() {
   }
 
   function selectRoutePoint(point: RoutePoint) {
-    setRoute(null);
     setRouteError(null);
+    setRouteNotice(null);
+    if (routeSelectionMode === "debris") {
+      if (debrisZones.some((zone) => zone.row === point.row && zone.column === point.column)) return;
+      const nextZones = [...debrisZones, point];
+      setDebrisZones(nextZones);
+      setRouteSelectionMode("idle");
+      if (routePoints.start && routePoints.destination) void requestRoute(routePoints, prediction, nextZones, avoidWater, "Route recalculated around the new debris zone.");
+      return;
+    }
+    setRoute(null);
     const selectedClass = prediction?.semanticData && prediction.semanticGridSize
       ? prediction.semanticData[point.row * prediction.semanticGridSize + point.column]
       : undefined;
@@ -135,23 +151,27 @@ function App() {
     setRouteState("idle");
   }
 
-  async function requestRoute(points = routePoints, sourcePrediction = prediction) {
+  async function requestRoute(points = routePoints, sourcePrediction = prediction, zones = debrisZones, waterAvoidance = avoidWater, notice?: string) {
     if (!sourcePrediction?.semanticData?.length || !sourcePrediction.semanticGridSize || !points.start || !points.destination) return;
     setRouteState("loading");
     setRouteError(null);
+    setRouteNotice(null);
     try {
       const response = await fetch("http://localhost:8000/api/route", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ semanticData: sourcePrediction.semanticData, gridSize: sourcePrediction.semanticGridSize, start: points.start, destination: points.destination }),
+        body: JSON.stringify({ semanticData: sourcePrediction.semanticData, gridSize: sourcePrediction.semanticGridSize, start: points.start, destination: points.destination, blockedCells: expandDebrisZones(zones, sourcePrediction.semanticGridSize), avoidWater: waterAvoidance }),
       });
       const body = await response.json() as RouteResult | { detail?: string };
       if (!response.ok) throw new Error("detail" in body ? body.detail : "Route could not be generated.");
       setRoute(body as RouteResult);
       setRoutePoints({ start: (body as RouteResult).start, destination: (body as RouteResult).destination });
       setRouteState("ready");
+      setRouteNotice(notice ?? null);
     } catch (error) {
+      setRoute(null);
       setRouteState("error");
+      setRouteNotice(null);
       setRouteError(error instanceof Error ? error.message : "Route could not be generated.");
     }
   }
@@ -160,7 +180,24 @@ function App() {
     if (!prediction?.semanticGridSize) return;
     const points = { start: { row: Math.round(prediction.semanticGridSize * 0.47), column: 2 }, destination: { row: Math.round(prediction.semanticGridSize * 0.47), column: prediction.semanticGridSize - 4 } };
     setRoutePoints(points);
-    void requestRoute(points, prediction);
+    void requestRoute(points, prediction, debrisZones, avoidWater);
+  }
+
+  function toggleWaterAvoidance() {
+    const nextAvoidWater = !avoidWater;
+    setAvoidWater(nextAvoidWater);
+    if (routePoints.start && routePoints.destination) void requestRoute(routePoints, prediction, debrisZones, nextAvoidWater, nextAvoidWater ? "Route recalculated with detected water excluded." : "Water exclusion disabled; review the route carefully.");
+  }
+
+  function clearDebrisZones() {
+    setDebrisZones([]);
+    if (routePoints.start && routePoints.destination) void requestRoute(routePoints, prediction, [], avoidWater, "Route recalculated after clearing debris zones.");
+  }
+
+  function removeDebrisZone(index: number) {
+    const nextZones = debrisZones.filter((_, zoneIndex) => zoneIndex !== index);
+    setDebrisZones(nextZones);
+    if (routePoints.start && routePoints.destination) void requestRoute(routePoints, prediction, nextZones, avoidWater, "Route recalculated after removing a debris zone.");
   }
 
   const statusLabel = backendStatus === "online" ? "API connected" : backendStatus === "offline" ? "API offline" : "Checking API";
@@ -241,6 +278,7 @@ function App() {
                     routePoints={routePoints}
                     routeSelectionMode={routeSelectionMode}
                     onRoutePointSelect={selectRoutePoint}
+                    debrisZones={debrisZones}
                     layers={layers}
                     inputImageUrl={`http://localhost:8000${prediction.inputImageUrl}`}
                   />
@@ -255,7 +293,13 @@ function App() {
                       routeSelectionMode={routeSelectionMode}
                       routeState={routeState}
                       routeError={routeError}
+                      routeNotice={routeNotice}
+                      avoidWater={avoidWater}
+                      debrisZones={debrisZones}
                       onRouteModeChange={setRouteSelectionMode}
+                      onToggleWater={toggleWaterAvoidance}
+                      onClearDebris={clearDebrisZones}
+                      onRemoveDebris={removeDebrisZone}
                       onPlanRoute={() => void requestRoute()}
                       onLoadDemoRoute={loadDemoRoute}
                       onClearRoute={() => { setRoute(null); setRoutePoints({}); setRouteState("idle"); setRouteError(null); }}

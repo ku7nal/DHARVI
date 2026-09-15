@@ -99,6 +99,15 @@ type RouteResult = {
   destination: RoutePoint;
   gridSize: number;
   distanceCells: number;
+  hazards: RouteHazards;
+};
+
+type RouteHazards = {
+  waterCells: number;
+  debrisCells: number;
+  blockedRoadCells: number;
+  waterBlockedRoadCells: number;
+  waterAvoidance: boolean;
 };
 
 const DEFAULT_SCENE_LAYERS: SceneLayers = { city: true, buildings: true, ground: true, roads: true, water: true, vegetation: true, trees: true, height: false, slope: false, rgb: false, wireframe: false };
@@ -127,4 +136,4 @@ type BenchmarkResult = {
 };
 
 export { DEFAULT_SCENE_LAYERS };
-export type { BenchmarkResult, BuildingRegion, CalibrationMetadata, GeoSpatialMetadata, PredictionResult, RoutePoint, RoutePoints, RouteResult, SceneLayers, SemanticClass };
+export type { BenchmarkResult, BuildingRegion, CalibrationMetadata, GeoSpatialMetadata, PredictionResult, RouteHazards, RoutePoint, RoutePoints, RouteResult, SceneLayers, SemanticClass };
