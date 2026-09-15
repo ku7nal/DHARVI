@@ -1,0 +1,1226 @@
+# DepthWizard GAMUS Kaggle Training Pipeline
+
+This file is a copy-pasteable Kaggle notebook. Run the Python blocks in order.
+
+The pipeline trains the hackathon model used by DepthWizard:
+
+```text
+RGB -> Depth Anything V2 Base -> nDSM height + 7-class semantics + building boundary
+                                      |
+                                      +-> backend building footprints
+                                      +-> Three.js reconstruction viewer
+```
+
+The GAMUS dataset must already be attached to the Kaggle notebook as a read-only
+Kaggle Dataset. Do not copy the dataset into `/kaggle/working`.
+
+The code dataset should contain these repository files, preserving their paths:
+
+```text
+backend/training/kaggle_final_train.py
+backend/training/depthwizard_model.py
+backend/training/gamus_audit.py
+backend/app/model_service.py
+backend/app/semantic_contract.py
+```
+
+If the code dataset is not available, upload those files as a Kaggle Dataset and
+change `CODE_ROOT` in Block 2.
+
+The official internal split name is `val`, not `validation`. The expected HDF5
+datasets are normally `image`, `height`, and `classes`; the audit below discovers
+the keys when `None` is used.
+
+## Block 1 - Install dependencies
+
+```python
+import subprocess
+import sys
+
+packages = [
+    "transformers>=4.45,<5",
+    "accelerate",
+    "h5py>=3.10,<4",
+    "rasterio>=1.3,<2",
+    "albumentations",
+    "opencv-python-headless",
+    "scikit-learn",
+    "scipy",
+    "pandas",
+    "matplotlib",
+    "seaborn",
+    "tqdm",
+    "psutil",
+]
+subprocess.check_call([sys.executable, "-m", "pip", "install", "-q", *packages])
+print("Dependencies installed")
+```
+
+## Block 2 - Configure paths
+
+```python
+from pathlib import Path
+import os
+
+# Change these two paths for your attached Kaggle Datasets.
+CODE_ROOT = Path("/kaggle/input/depthwizard-code")
+GAMUS_ROOT = Path("/kaggle/input/your-full-gamus-dataset")
+
+WORK_ROOT = Path("/kaggle/working/depthwizard_final")
+SMOKE_ROOT = Path("/kaggle/working/depthwizard_smoke_full")
+OVERFIT_ROOT = Path("/kaggle/working/depthwizard_overfit")
+SRC_ROOT = Path("/kaggle/working/depthwizard_src")
+
+DATASET_ID = "your-kaggle-owner/your-full-gamus-dataset"
+DATASET_REVISION = "your-kaggle-dataset-version"
+MODEL_ID = "depth-anything/Depth-Anything-V2-Base-hf"
+
+CROP_SIZE = 518
+BATCH_SIZE = 2
+ACCUMULATION = 4
+NUM_WORKERS = 2
+TILE_OVERLAP = 0.5
+SEED = 7
+
+SMOKE_EPOCHS = 2
+SMOKE_CROPS_PER_SAMPLE = 1
+FINAL_EPOCHS = 50
+FINAL_CROPS_PER_SAMPLE = 4
+
+# Leave these as None for automatic per-file HDF5 key discovery.
+# For the normal GAMUS layout these are image, height, and classes.
+H5_KEYS = {"image": None, "height": None, "classes": None}
+
+# Known complete GAMUS release statistics (from original paper and HuggingFace)
+# If your attached dataset matches these exact counts, it's the complete release.
+KNOWN_COMPLETE_COUNTS = {
+    "train": 6304,
+    "val": 1059, 
+    "test": 4144,
+    "total": 11507
+}
+
+# Set this to KNOWN_COMPLETE_COUNTS to enable automatic completeness detection.
+# Set to None to require manual specification for production.
+EXPECTED_FULL_COUNTS = KNOWN_COMPLETE_COUNTS
+
+# Error handling strategy
+# "strict": Fail immediately on any error
+# "warn": Log warnings but continue with best-effort processing
+# "manual": Pause and ask user for each critical error
+ERROR_HANDLING = os.getenv("DEPTHWIZARD_ERROR_HANDLING", "strict")
+
+# Memory management for large datasets
+# "auto": Automatically chunk processing based on available memory
+# "force": Force chunked processing even if dataset is small
+# "memory": Process everything in memory (current default)
+MEMORY_STRATEGY = os.getenv("DEPTHWIZARD_MEMORY_STRATEGY", "auto")
+
+RUN_OVERFIT_TEST = True
+RUN_SMOKE_TEST = True
+RUN_FINAL_TRAINING = False
+RUN_COMPLETE_METRICS = True
+RUN_PRODUCTION_CHECK = True
+
+if "/kaggle/input" not in str(GAMUS_ROOT):
+    raise ValueError("GAMUS_ROOT must point to read-only /kaggle/input storage")
+if "/kaggle/working" not in str(WORK_ROOT):
+    raise ValueError("Generated artifacts must be written below /kaggle/working")
+
+for directory in (WORK_ROOT, SMOKE_ROOT, OVERFIT_ROOT, SRC_ROOT):
+    directory.mkdir(parents=True, exist_ok=True)
+
+print({
+    "GAMUS_ROOT": str(GAMUS_ROOT),
+    "CODE_ROOT": str(CODE_ROOT),
+    "DATASET_ID": DATASET_ID,
+    "DATASET_REVISION": DATASET_REVISION,
+    "device_available": __import__("torch").cuda.is_available(),
+})
+```
+
+## Block 3 - Locate the dataset root and source files
+
+```python
+import shutil
+
+def locate_gamus_root(candidate: Path) -> Path:
+    candidates = [candidate]
+    if candidate.exists():
+        candidates.extend(path.parent.parent for path in candidate.rglob("images/train") if path.is_dir())
+    for root in candidates:
+        required = [root / kind / split for kind in ("images", "heights", "classes") for split in ("train", "val", "test")]
+        if all(path.is_dir() for path in required):
+            return root
+    raise FileNotFoundError(
+        "Could not find images/train, images/val, images/test, heights/*, and classes/* "
+        f"below {candidate}. Use the directory containing images, heights, and classes."
+    )
+
+GAMUS_ROOT = locate_gamus_root(GAMUS_ROOT)
+
+required_source_names = {
+    "kaggle_final_train.py",
+    "depthwizard_model.py",
+    "gamus_audit.py",
+    "model_service.py",
+    "semantic_contract.py",
+}
+source_paths = {}
+for name in required_source_names:
+    matches = sorted(CODE_ROOT.rglob(name)) if CODE_ROOT.exists() else []
+    if not matches:
+        raise FileNotFoundError(f"Missing {name} below {CODE_ROOT}")
+    source_paths[name] = matches[0]
+
+(SRC_ROOT / "training").mkdir(parents=True, exist_ok=True)
+(SRC_ROOT / "app").mkdir(parents=True, exist_ok=True)
+(SRC_ROOT / "training" / "__init__.py").write_text("")
+(SRC_ROOT / "app" / "__init__.py").write_text("")
+
+for name in ("kaggle_final_train.py", "depthwizard_model.py", "gamus_audit.py"):
+    shutil.copy2(source_paths[name], SRC_ROOT / "training" / name)
+for name in ("model_service.py", "semantic_contract.py"):
+    shutil.copy2(source_paths[name], SRC_ROOT / "app" / name)
+
+import sys
+if str(SRC_ROOT) not in sys.path:
+    sys.path.insert(0, str(SRC_ROOT))
+
+print("GAMUS_ROOT:", GAMUS_ROOT)
+print("Training source:", SRC_ROOT)
+```
+
+## Block 3.5 - Notebook-only patch: treat class ID 255 as void/ignore
+
+GAMUS uses 255 as the void/ignore semantic label. The repo audit rejects any
+ID outside 0..6, which fails on the real dataset (e.g. NYC_30099_CLS.h5).
+This patch edits the copied audit source under `/kaggle/working` so 255 is
+counted as void instead of fatal. IDs like 7 or 99 are still rejected.
+Re-run this block whenever Block 3 re-copies the unpatched source.
+
+```python
+from pathlib import Path
+import sys
+
+AUDIT_SOURCE = SRC_ROOT / "training" / "gamus_audit.py"
+source = AUDIT_SOURCE.read_text()
+
+old_check = '''            finite_height = np.isfinite(height)
+            valid_class = np.isin(classes, np.arange(CLASS_COUNT))
+            if not np.all(valid_class):
+                invalid_ids = sorted(int(value) for value in np.unique(classes[~valid_class]))
+                raise DatasetAuditError(
+                    f"Invalid semantic class IDs in {class_path}: {invalid_ids}; "
+                    f"expected IDs 0..{CLASS_COUNT - 1}"
+                )
+            valid = finite_height & valid_class'''
+new_check = '''            finite_height = np.isfinite(height)
+            valid_class = np.isin(classes, np.arange(CLASS_COUNT))
+            void_class = np.isin(classes, (255,))
+            if not np.all(valid_class | void_class):
+                invalid_ids = sorted(int(value) for value in np.unique(classes[~(valid_class | void_class)]))
+                raise DatasetAuditError(
+                    f"Invalid semantic class IDs in {class_path}: {invalid_ids}; "
+                    f"expected IDs 0..{CLASS_COUNT - 1} (255 is treated as void)"
+                )
+            valid = finite_height & valid_class'''
+assert old_check in source, "Audit check block not found; the Kaggle code copy differs from the repo"
+source = source.replace(old_check, new_check, 1)
+
+old_record = '''                "invalid_pixels": {
+                    "height_nonfinite": int((~finite_height).sum()),
+                    "class_id_invalid": int((~valid_class).sum()),
+                    "total_invalid": int((~valid).sum()),
+                },'''
+new_record = '''                "invalid_pixels": {
+                    "height_nonfinite": int((~finite_height).sum()),
+                    "class_id_invalid": int((~(valid_class | void_class)).sum()),
+                    "class_id_void": int(void_class.sum()),
+                    "total_invalid": int((~valid).sum()),
+                },'''
+assert old_record in source, "Audit record block not found; the Kaggle code copy differs from the repo"
+source = source.replace(old_record, new_record, 1)
+
+AUDIT_SOURCE.write_text(source)
+sys.modules.pop("training.gamus_audit", None)
+print("Patched gamus_audit.py: class ID 255 is now treated as void/ignore")
+```
+
+## Block 4 - Smart full-dataset audit
+
+This is the first gate. It validates the dataset against multiple quality criteria:
+- Exact paired RGB/height/semantic triplet alignment
+- Support for the official GAMUS split names (train/val/test) or validation alias
+- Detection of orphan files, spatial mismatches, and unsupported data shapes
+- Mandatory rejection of invalid semantic class IDs
+- Comprehensive statistics generation
+
+The audit can run in three modes based on `ERROR_HANDLING`:
+- "strict" (default): Immediate failure on any validation error
+- "warn": Log warnings but continue with best-effort processing
+- "manual": Interactive pause for critical errors
+
+```python
+import json
+import shutil
+from training.gamus_audit import audit_dataset, DatasetAuditError
+import sys
+
+if not DATASET_ID or DATASET_ID.startswith("your-"):
+    raise ValueError("Set DATASET_ID to the exact attached dataset identifier")
+if not DATASET_REVISION or DATASET_REVISION.startswith("your-"):
+    raise ValueError("Set DATASET_REVISION to the exact attached dataset version/revision")
+
+AUDIT_PATH = WORK_ROOT / "gamus_manifest.json"
+
+def log_error(message: str, error_type: str = "ERROR", continue_on_error: bool = False):
+    """Centralized error logging with handling based on ERROR_HANDLING mode."""
+    if error_type == "ERROR":
+        print(f"[ERROR] {message}", file=sys.stderr)
+        if ERROR_HANDLING == "strict":
+            raise ValueError(message)
+        elif ERROR_HANDLING == "manual":
+            response = input(f"[MANUAL] Continue despite error? (y/n): ").strip().lower()
+            if response != 'y':
+                raise ValueError(message)
+        # In "warn" mode, we log and continue
+    elif error_type == "WARNING":
+        print(f"[WARNING] {message}")
+        if ERROR_HANDLING == "manual":
+            response = input(f"[MANUAL] Continue despite warning? (y/n): ").strip().lower()
+            if response != 'y':
+                raise ValueError("User chose to stop due to warning")
+
+manifest = None
+try:
+    # Primary audit using the validated, fail-fast logic
+    manifest = audit_dataset(
+        GAMUS_ROOT,
+        AUDIT_PATH,
+        dataset_id=DATASET_ID,
+        dataset_revision=DATASET_REVISION,
+        image_key=H5_KEYS["image"],
+        height_key=H5_KEYS["height"],
+        class_key=H5_KEYS["classes"],
+    )
+    
+    print("✓ GAMUS audit passed successfully")
+    
+except DatasetAuditError as e:
+    log_error(str(e), "ERROR", continue_on_error=(ERROR_HANDLING == "warn"))
+    
+except Exception as e:
+    log_error(f"Unexpected audit error: {e}", "ERROR", continue_on_error=(ERROR_HANDLING == "warn"))
+
+if manifest is None:
+    raise RuntimeError("GAMUS audit failed and no manifest was produced; fix the dataset before continuing")
+
+# Preserve the strict manifest under both names required by the hackathon handoff.
+shutil.copy2(AUDIT_PATH, WORK_ROOT / "dataset_audit.json")
+
+# Enhanced completeness detection with intelligent fallback
+counts = {split: int(report["sample_count"]) for split, report in manifest["splits"].items()}
+observed_total = sum(counts.values())
+
+if EXPECTED_FULL_COUNTS is not None:
+    # Compare per-split counts against the known complete GAMUS counts.
+    # The "total" key is excluded so the dict comparison can actually match.
+    expected_counts = {key: value for key, value in EXPECTED_FULL_COUNTS.items() if key != "total"}
+    expected_total = int(EXPECTED_FULL_COUNTS.get("total", sum(expected_counts.values())))
+    completeness_match = counts == expected_counts
+    if completeness_match:
+        completeness = "complete_attached_dataset"
+        print(f"✓ Dataset matches known complete GAMUS specification ({observed_total} samples)")
+    else:
+        completeness = "subset"
+        print(f"⚠ Dataset is a subset of complete GAMUS ({observed_total} vs {expected_total} samples)")
+        print(f"  Observed counts: {counts}")
+        print(f"  Expected counts: {expected_counts}")
+else:
+    completeness = "unknown_completeness"
+    print(f"ℹ Dataset completeness unknown ({observed_total} samples)")
+    print(f"  Splits: {counts}")
+    print("  Set EXPECTED_FULL_COUNTS to enable automatic completeness detection")
+
+manifest["dataset_completeness"] = completeness
+manifest["expected_full_counts"] = EXPECTED_FULL_COUNTS if EXPECTED_FULL_COUNTS else {"note": "manual check required"}
+AUDIT_PATH.write_text(json.dumps(manifest, indent=2) + "\n")
+shutil.copy2(AUDIT_PATH, WORK_ROOT / "dataset_audit.json")
+
+print(json.dumps({
+    "dataset": manifest["dataset"],
+    "splits": counts,
+    "total_samples": observed_total,
+    "valid_pixels": manifest["total_valid_pixel_count"],
+    "invalid_pixels": manifest["total_invalid_pixel_count"],
+    "completeness": completeness,
+}, indent=2))
+```
+
+## Block 5 - Dataset size monitoring and adaptive processing
+
+This block implements memory management and size monitoring to handle large GAMUS datasets efficiently.
+
+```python
+import gc
+from datetime import datetime
+
+import numpy as np
+import psutil
+import torch
+
+def get_available_memory():
+    """Available system memory in GB."""
+    return psutil.virtual_memory().available / (1024**3)
+
+def estimate_dataset_size(sample_count):
+    """Rough on-disk size estimate in GB.
+
+    Each GAMUS tile is ~1024x1024 HDF5 (uint8 RGB + float32 height +
+    uint8 semantics), i.e. roughly 8 MB per sample.
+    """
+    return sample_count * 8 / 1024
+
+def setup_memory_management(sample_count):
+    """Configure memory management strategy based on dataset size and available memory."""
+    available_gb = get_available_memory()
+    estimated_gb = estimate_dataset_size(sample_count)
+
+    print(f"Memory Management:")
+    print(f"  Available memory: {available_gb:.1f} GB")
+    print(f"  Estimated dataset size: {estimated_gb:.1f} GB")
+    print("  Note: HDF5 samples are read lazily per crop; only batches are held in RAM.")
+
+    if MEMORY_STRATEGY == "auto":
+        if estimated_gb > available_gb * 0.8:
+            print("  ⚠ Dataset exceeds 80% of available memory")
+            return {"mode": "chunked", "chunks_per_batch": 2}
+        print(f"  Dataset fits comfortably ({estimated_gb/available_gb:.1%} of available memory)")
+        return {"mode": "in_memory", "batch_size_multiplier": 1}
+    elif MEMORY_STRATEGY == "force":
+        print("  Force chunked processing enabled")
+        return {"mode": "chunked", "chunks_per_batch": 2}
+    elif MEMORY_STRATEGY == "memory":
+        print("  Full in-memory processing enabled")
+        return {"mode": "in_memory", "batch_size_multiplier": 1}
+
+    return {"mode": "auto"}
+
+# Memory management setup (uses the audited manifest; `samples` is indexed later).
+memory_strategy = setup_memory_management(int(manifest["total_sample_count"]))
+print(f"Memory strategy: {memory_strategy}")
+
+# Set memory limits based on strategy
+if torch.cuda.is_available():
+    torch.cuda.empty_cache()
+    try:
+        torch.cuda.set_per_process_memory_fraction(0.8)
+    except (RuntimeError, ValueError) as error:
+        print(f"  Could not set CUDA memory fraction on this runtime: {error}")
+
+# Set numpy memory management
+np.set_printoptions(threshold=10000)
+
+# Monitor memory usage during processing
+class MemoryMonitor:
+    def __init__(self, check_interval=60):
+        self.check_interval = check_interval
+        self.memory_records = []
+
+    def check_memory(self, stage="processing"):
+        available_gb = get_available_memory()
+        self.memory_records.append({
+            "stage": stage,
+            "available_gb": available_gb,
+            "timestamp": datetime.now().isoformat()
+        })
+
+        if available_gb < 20:  # Less than 20GB available
+            print(f"⚠ Low memory warning: {available_gb:.1f} GB available during {stage}")
+            if MEMORY_STRATEGY != "force":
+                print("  Consider reducing batch size or using chunked processing")
+
+    def get_summary(self):
+        if not self.memory_records:
+            return None
+
+        min_memory = min(r["available_gb"] for r in self.memory_records)
+        max_memory = max(r["available_gb"] for r in self.memory_records)
+        avg_memory = sum(r["available_gb"] for r in self.memory_records) / len(self.memory_records)
+
+        return {
+            "stages": [r["stage"] for r in self.memory_records],
+            "min_gb": min_memory,
+            "max_gb": max_memory,
+            "avg_gb": avg_memory,
+            "peak_usage_gb": max_memory - avg_memory,
+            "total_checks": len(self.memory_records)
+        }
+
+memory_monitor = MemoryMonitor()
+memory_monitor.check_memory("initialization")
+```
+
+## Block 6 - Dataset distribution reports
+
+```python
+import numpy as np
+import matplotlib.pyplot as plt
+
+class_names = ["others", "ground", "low_vegetation", "building", "water", "road", "tree"]
+class_counts = np.zeros(7, dtype=np.int64)
+height_percentiles = {}
+for split, report in manifest["splits"].items():
+    for class_id, value in report["class_counts"].items():
+        class_counts[int(class_id)] += int(value)
+    height_percentiles[split] = report["height_stats"]["percentiles"]
+
+class_report = {
+    "class_names": class_names,
+    "counts": class_counts.tolist(),
+    "height_percentiles": height_percentiles,
+}
+# Use the same bounded class weighting as the training script.
+weights = np.sqrt(class_counts.sum() / (7 * np.maximum(class_counts, 1)))
+weights = np.clip(weights / max(float(weights.mean()), 1e-6), 0.5, 3.0)
+class_report["weights"] = weights.astype(float).tolist()
+(WORK_ROOT / "class_histogram.json").write_text(json.dumps(class_report, indent=2) + "\n")
+
+plt.figure(figsize=(11, 5))
+plt.bar(class_names, class_counts)
+plt.xticks(rotation=25, ha="right")
+plt.ylabel("Valid pixels")
+plt.title("GAMUS semantic class histogram")
+plt.tight_layout()
+plt.savefig(WORK_ROOT / "class_histogram.png", dpi=160)
+plt.close()
+
+percentile_names = ["0", "1", "5", "25", "50", "75", "95", "99", "100"]
+plt.figure(figsize=(10, 5))
+for split, values in height_percentiles.items():
+    x = np.arange(len(percentile_names))
+    y = [values.get(key, 0.0) for key in percentile_names]
+    plt.plot(x, y, marker="o", label=split)
+plt.xticks(np.arange(len(percentile_names)), percentile_names)
+plt.xlabel("Percentile")
+plt.ylabel("Height / nDSM")
+plt.title("GAMUS height distribution")
+plt.grid(alpha=0.25)
+plt.legend()
+plt.tight_layout()
+plt.savefig(WORK_ROOT / "height_distribution.png", dpi=160)
+plt.close()
+
+height_scale = max(1.0, float(manifest["splits"]["train"]["height_stats"]["percentiles"].get("99", 1.0)))
+print(json.dumps({"class_counts": class_counts.tolist(), "height_scale": height_scale}, indent=2))
+```
+
+## Block 7a - Inspect aligned samples
+
+```python
+import h5py
+from PIL import Image
+
+def read_key(path: Path, key: str):
+    with h5py.File(path, "r") as handle:
+        return np.asarray(handle[key])
+
+def normalize_image(values: np.ndarray) -> np.ndarray:
+    if values.ndim == 3 and values.shape[0] in (1, 3, 4) and values.shape[-1] not in (1, 3, 4):
+        values = np.moveaxis(values, 0, -1)
+    values = values[..., :3]
+    if values.dtype != np.uint8:
+        values = values.astype(np.float32)
+        if np.nanmax(values) <= 1.5:
+            values *= 255.0
+        values = np.clip(values, 0, 255).astype(np.uint8)
+    return values
+
+def normalize_raster(values: np.ndarray) -> np.ndarray:
+    if values.ndim == 3 and values.shape[0] == 1:
+        values = values[0]
+    return values
+
+sample_records = [record for record in manifest["samples"] if record["split"] == "train"][:4]
+fig, axes = plt.subplots(len(sample_records), 5, figsize=(18, 5 * max(1, len(sample_records))))
+axes = np.atleast_2d(axes)
+for row, record in enumerate(sample_records):
+    image_path = GAMUS_ROOT / record["files"]["image"]
+    height_path = GAMUS_ROOT / record["files"]["height"]
+    classes_path = GAMUS_ROOT / record["files"]["classes"]
+    image = normalize_image(read_key(image_path, record["dataset_keys"]["image"]))
+    height = normalize_raster(read_key(height_path, record["dataset_keys"]["height"])).astype(np.float32)
+    classes = normalize_raster(read_key(classes_path, record["dataset_keys"]["classes"])).astype(np.int64)
+    valid = np.isfinite(height)
+    assert image.shape[:2] == height.shape == classes.shape
+    assert set(np.unique(classes)).issubset(set(range(7)) | {255})
+    panels = [
+        (image, "RGB", None),
+        (np.nan_to_num(height), "Reference nDSM", "magma"),
+        (classes, "Semantic IDs", "tab10"),
+        ((classes == 3), "Building mask", "gray"),
+        (valid, "Valid pixels", "gray"),
+    ]
+    for column, (values, title, cmap) in enumerate(panels):
+        axes[row, column].imshow(values, cmap=cmap, vmin=0 if title == "Semantic IDs" else None, vmax=6 if title == "Semantic IDs" else None)
+        axes[row, column].set_title(f"{record['files']['image']}\n{title}")
+        axes[row, column].axis("off")
+plt.tight_layout()
+plt.savefig(WORK_ROOT / "sample_inspection.png", dpi=140)
+plt.show()
+
+print("Verified semantic contract: 3=building, 4=water, 5=road, 6=tree")
+```
+
+## Block 7b - Import the shared final trainer
+
+```python
+from training.kaggle_final_train import (
+    CLASS_COUNT,
+    CLASS_NAMES,
+    BUILDING_CLASS,
+    GamusCropDataset,
+    index_samples,
+    make_class_weights,
+    multitask_loss,
+    tiled_predict,
+    load_triplet,
+    building_boundary,
+)
+from training.depthwizard_model import build_depthwizard_model, DepthWizardMultitask
+
+assert CLASS_COUNT == 7
+assert BUILDING_CLASS == 3
+assert tuple(CLASS_NAMES) == tuple(class_names)
+
+samples = index_samples(GAMUS_ROOT)
+print({split: len(values) for split, values in samples.items()})
+```
+
+## Block 8 - One-batch forward/backward gate
+
+This must pass before the overfit or smoke run. It uses the final Base model,
+decoder, heads, and loss.
+
+```python
+import gc
+import torch
+from torch.utils.data import DataLoader
+
+torch.manual_seed(SEED)
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+# Use keys selected by the audit instead of assuming one key for all modalities.
+selected_keys = {
+    "image": manifest["samples"][0]["dataset_keys"]["image"],
+    "height": manifest["samples"][0]["dataset_keys"]["height"],
+    "classes": manifest["samples"][0]["dataset_keys"]["classes"],
+}
+
+# All GAMUS files in a release should use the same logical keys. Verify this.
+for record in manifest["samples"]:
+    if record["dataset_keys"] != selected_keys:
+        raise ValueError(f"HDF5 key mismatch in {record['files']}: {record['dataset_keys']} vs {selected_keys}")
+
+class_counts_train, class_weights_np = make_class_weights(samples["train"], selected_keys)
+train_probe = GamusCropDataset(
+    samples["train"][:1], selected_keys, CROP_SIZE, height_scale,
+    class_weights_np, True, 1, SEED,
+)
+probe_batch = next(iter(DataLoader(train_probe, batch_size=1, num_workers=0)))
+model = build_depthwizard_model(MODEL_ID).to(device)
+model.train()
+probe_batch = {key: value.to(device) for key, value in probe_batch.items()}
+outputs = model(probe_batch["image"])
+assert tuple(outputs["height"].shape) == (1, 1, CROP_SIZE, CROP_SIZE)
+assert tuple(outputs["semantic"].shape) == (1, 7, CROP_SIZE, CROP_SIZE)
+assert tuple(outputs["boundary"].shape) == (1, 1, CROP_SIZE, CROP_SIZE)
+losses = multitask_loss(
+    outputs, probe_batch,
+    torch.from_numpy(class_weights_np).to(device), height_scale,
+    semantic_weight=0.15, boundary_weight=0.05,
+)
+assert torch.isfinite(losses["total"]).item(), losses
+losses["total"].backward()
+gradient_values = [parameter.grad.detach() for parameter in model.parameters() if parameter.grad is not None]
+assert gradient_values and all(torch.isfinite(value).all().item() for value in gradient_values)
+predicted_classes = outputs["semantic"].detach().argmax(dim=1)
+assert int(predicted_classes.min()) >= 0 and int(predicted_classes.max()) <= 6
+assert float(outputs["height"].detach().std()) > 1e-8
+assert float(outputs["height"].detach().min()) >= 0.0
+print({"device": str(device), "losses": {key: float(value.detach()) for key, value in losses.items()}})
+del model, outputs, losses, probe_batch, gradient_values
+gc.collect()
+if torch.cuda.is_available():
+    torch.cuda.empty_cache()
+```
+
+## Block 9 - Four-tile overfit gate
+
+```python
+import time
+
+if RUN_OVERFIT_TEST:
+    overfit_samples = samples["train"][:4]
+    if len(overfit_samples) < 4:
+        raise ValueError("The overfit gate requires at least four train samples")
+    overfit_dataset = GamusCropDataset(
+        overfit_samples, selected_keys, CROP_SIZE, height_scale,
+        class_weights_np, True, 1, SEED,
+    )
+    overfit_loader = DataLoader(overfit_dataset, batch_size=1, shuffle=False, num_workers=0)
+    overfit_model = build_depthwizard_model(MODEL_ID).to(device)
+    overfit_model.train()
+    overfit_optimizer = torch.optim.AdamW(overfit_model.parameters(), lr=1e-4, weight_decay=1e-4)
+    overfit_weight_tensor = torch.from_numpy(class_weights_np).to(device)
+    losses_seen = []
+    for step in range(20):
+        batch = next(iter(overfit_loader))
+        batch = {key: value.to(device) for key, value in batch.items()}
+        overfit_optimizer.zero_grad(set_to_none=True)
+        output = overfit_model(batch["image"])
+        terms = multitask_loss(output, batch, overfit_weight_tensor, height_scale, 0.15, 0.05)
+        terms["total"].backward()
+        torch.nn.utils.clip_grad_norm_(overfit_model.parameters(), 1.0)
+        overfit_optimizer.step()
+        losses_seen.append(float(terms["total"].detach().cpu()))
+    if not losses_seen[-1] < losses_seen[0]:
+        raise RuntimeError(f"Four-tile overfit loss did not decrease: {losses_seen[0]} -> {losses_seen[-1]}")
+
+    overfit_model.eval()
+    with torch.inference_mode():
+        saved_output = {key: value.detach().cpu() for key, value in overfit_model(batch["image"]).items()}
+    overfit_checkpoint = OVERFIT_ROOT / "overfit_checkpoint.pth"
+    torch.save({"state_dict": overfit_model.state_dict(), "losses": losses_seen}, overfit_checkpoint)
+    checkpoint_state = torch.load(overfit_checkpoint, map_location=device, weights_only=False)
+    overfit_model.load_state_dict(checkpoint_state["state_dict"], strict=True)
+    with torch.inference_mode():
+        reloaded_output = {key: value.detach().cpu() for key, value in overfit_model(batch["image"]).items()}
+    for key in saved_output:
+        assert torch.allclose(saved_output[key], reloaded_output[key], atol=1e-5, rtol=1e-5), key
+    predicted_building_fraction = float((saved_output["semantic"].argmax(dim=1) == BUILDING_CLASS).float().mean())
+    assert float(saved_output["height"].std()) > 1e-8
+    assert predicted_building_fraction >= 0.0
+    print({"initial_loss": losses_seen[0], "final_loss": losses_seen[-1], "predicted_building_fraction": predicted_building_fraction})
+    del overfit_model, overfit_loader, overfit_dataset
+    gc.collect()
+    if torch.cuda.is_available():
+        torch.cuda.empty_cache()
+else:
+    print("Four-tile overfit gate disabled")
+```
+
+## Block 10 - Full-data two-epoch smoke test
+
+This invokes the same final architecture, native crops, losses, tiled evaluator,
+and checkpoint format used for final training. The only reductions are two
+epochs and one crop per sample.
+
+```python
+import os
+import subprocess
+
+if RUN_SMOKE_TEST:
+    command = [
+        sys.executable,
+        str(SRC_ROOT / "training" / "kaggle_final_train.py"),
+        "--root", str(GAMUS_ROOT),
+        "--output-dir", str(SMOKE_ROOT),
+        "--dataset-id", DATASET_ID,
+        "--dataset-revision", DATASET_REVISION,
+        "--image-key", selected_keys["image"],
+        "--height-key", selected_keys["height"],
+        "--class-key", selected_keys["classes"],
+        "--model-id", MODEL_ID,
+        "--crop-size", str(CROP_SIZE),
+        "--batch-size", str(BATCH_SIZE),
+        "--accumulation", str(ACCUMULATION),
+        "--num-workers", str(NUM_WORKERS),
+        "--smoke-test",
+    ]
+    env = os.environ.copy()
+    env["PYTHONPATH"] = str(SRC_ROOT) + os.pathsep + env.get("PYTHONPATH", "")
+    subprocess.run(command, check=True, env=env, cwd=SRC_ROOT)
+    # Restore the strict audit because the legacy trainer writes a weaker duplicate.
+    shutil.copy2(AUDIT_PATH, SMOKE_ROOT / "gamus_manifest.json")
+    shutil.copy2(AUDIT_PATH, SMOKE_ROOT / "dataset_audit.json")
+    print("Smoke test completed:", SMOKE_ROOT)
+else:
+    print("Smoke test disabled")
+```
+
+## Block 11 - Smoke-test acceptance gate
+
+```python
+def assert_finite_json(value, path="root"):
+    if isinstance(value, dict):
+        for key, item in value.items():
+            assert_finite_json(item, f"{path}.{key}")
+    elif isinstance(value, list):
+        for index, item in enumerate(value):
+            assert_finite_json(item, f"{path}[{index}]")
+    elif isinstance(value, float):
+        if not np.isfinite(value):
+            raise AssertionError(f"Non-finite value at {path}")
+
+smoke_checkpoint = SMOKE_ROOT / "dinosaur.pth"
+smoke_metrics_path = SMOKE_ROOT / "metrics.json"
+if RUN_SMOKE_TEST:
+    assert smoke_checkpoint.exists(), smoke_checkpoint
+    assert smoke_metrics_path.exists(), smoke_metrics_path
+    smoke_checkpoint_data = torch.load(smoke_checkpoint, map_location="cpu", weights_only=False)
+    assert smoke_checkpoint_data["checkpoint_format"] == "depthwizard_dpt_multiscale_v2"
+    assert tuple(smoke_checkpoint_data["class_names"]) == tuple(class_names)
+    assert smoke_checkpoint_data["class_count"] == 7
+    assert smoke_checkpoint_data["building_class"] == 3
+    assert smoke_checkpoint_data["image_size"] == CROP_SIZE
+    assert abs(float(smoke_checkpoint_data["tile_overlap"]) - TILE_OVERLAP) < 1e-8
+    assert float(smoke_checkpoint_data["height_scale"]) >= 1.0
+    smoke_metrics = json.loads(smoke_metrics_path.read_text())
+    assert_finite_json(smoke_metrics)
+    assert smoke_metrics["train_samples"] == len(samples["train"])
+    assert smoke_metrics["validation_samples"] == len(samples["val"])
+    assert smoke_metrics["test_samples"] == len(samples["test"])
+    assert smoke_metrics["smoke_test"] is True
+    print(json.dumps({
+        "checkpoint": str(smoke_checkpoint),
+        "samples": {key: smoke_metrics[f"{key}_samples"] for key in ("train", "validation", "test")},
+        "validation_macro_rmse": smoke_metrics["validation"].get("macro_rmse"),
+        "test_macro_rmse": smoke_metrics["test"].get("macro_rmse"),
+    }, indent=2))
+```
+
+## Block 12 - Production wrapper smoke verification
+
+This loads the exact smoke checkpoint through the same model service class used
+by FastAPI. A 1024 x 1024 check verifies complete tiled coverage.
+
+```python
+from PIL import Image
+from app.model_service import DepthAnythingModelService
+
+if RUN_SMOKE_TEST and RUN_PRODUCTION_CHECK:
+    service = DepthAnythingModelService(smoke_checkpoint, device=str(device))
+    small_image = Image.fromarray(np.zeros((CROP_SIZE, CROP_SIZE, 3), dtype=np.uint8), mode="RGB")
+    small_result = service.predict_result(small_image)
+    assert small_result["height"].shape == (CROP_SIZE, CROP_SIZE)
+    assert small_result["semantic"].shape == (7, CROP_SIZE, CROP_SIZE)
+    assert np.isfinite(small_result["height"]).all()
+    assert float(np.std(small_result["height"])) > 1e-8
+    large_image = Image.fromarray(np.zeros((1024, 1024, 3), dtype=np.uint8), mode="RGB")
+    large_result = service.predict_result(large_image)
+    assert large_result["height"].shape == (1024, 1024)
+    assert large_result["semantic"].shape == (7, 1024, 1024)
+    assert np.isfinite(large_result["height"]).all()
+    print({"small_output": {key: value.shape for key, value in small_result.items()}, "large_height": large_result["height"].shape})
+else:
+    print("Production wrapper smoke check disabled")
+```
+
+## Block 13 - Complete metrics helpers
+
+The repository trainer writes macro metrics, but the hackathon report also needs
+pooled metrics, ranges, bootstrap intervals, and per-tile JSONL. These helpers
+calculate those fields from full-resolution tiled predictions.
+
+```python
+from collections import defaultdict
+
+HEIGHT_RANGES = {
+    "0_2m": (0.0, 2.0),
+    "2_10m": (2.0, 10.0),
+    "10m_plus": (10.0, float("inf")),
+}
+
+def metric_triplet(predicted, target):
+    predicted = np.asarray(predicted, dtype=np.float64).ravel()
+    target = np.asarray(target, dtype=np.float64).ravel()
+    if predicted.size == 0:
+        return {"rmse": None, "mae": None, "correlation": None, "count": 0}
+    diff = predicted - target
+    p_centered = predicted - predicted.mean()
+    t_centered = target - target.mean()
+    denominator = np.sqrt(np.sum(p_centered ** 2) * np.sum(t_centered ** 2))
+    correlation = float(np.sum(p_centered * t_centered) / denominator) if denominator > 1e-12 else 0.0
+    return {
+        "rmse": float(np.sqrt(np.mean(diff ** 2))),
+        "mae": float(np.mean(np.abs(diff))),
+        "correlation": correlation,
+        "count": int(predicted.size),
+    }
+
+def iou(predicted, target):
+    union = np.sum(predicted | target)
+    return float(np.sum(predicted & target) / union) if union else None
+
+def f1(predicted, target):
+    denominator = np.sum(predicted) + np.sum(target)
+    return float(2 * np.sum(predicted & target) / denominator) if denominator else 0.0
+
+def semantic_scores(predicted_classes, target_classes, valid):
+    valid = valid.astype(bool)
+    values = {}
+    ious = []
+    for class_id, name in enumerate(class_names):
+        predicted_mask = (predicted_classes == class_id) & valid
+        target_mask = (target_classes == class_id) & valid
+        score = iou(predicted_mask, target_mask)
+        values[name] = score
+        if score is not None:
+            ious.append(score)
+    predicted_building = (predicted_classes == BUILDING_CLASS) & valid
+    target_building = (target_classes == BUILDING_CLASS) & valid
+    target_boundary = building_boundary(target_classes) & valid
+    predicted_boundary = building_boundary(predicted_classes) & valid
+    return {
+        "per_class_iou": values,
+        "semantic_miou": float(np.mean(ious)) if ious else None,
+        "building_iou": iou(predicted_building, target_building),
+        "building_f1": f1(predicted_building, target_building),
+        "semantic_building_boundary_f1": f1(predicted_boundary, target_boundary),
+    }
+
+def bootstrap_interval(values, seed=SEED, iterations=1000):
+    values = np.asarray([value for value in values if value is not None and np.isfinite(value)], dtype=np.float64)
+    if values.size == 0:
+        return None
+    rng = np.random.default_rng(seed)
+    draws = rng.choice(values, size=(iterations, values.size), replace=True).mean(axis=1)
+    low, high = np.percentile(draws, [2.5, 97.5])
+    return {"low": float(low), "high": float(high), "confidence": 0.95}
+
+def aggregate_metric_records(records):
+    result = {"sample_count": len(records)}
+    metric_names = ["rmse", "mae", "correlation", "semantic_miou", "building_iou", "building_f1", "semantic_building_boundary_f1", "boundary_head_f1"]
+    for name in metric_names:
+        values = np.asarray([record[name] for record in records if record.get(name) is not None], dtype=np.float64)
+        result[f"macro_{name}"] = float(values.mean()) if values.size else None
+        result[f"std_{name}"] = float(values.std()) if values.size else None
+    class_values = {name: [] for name in class_names}
+    for record in records:
+        for name, value in record["per_class_iou"].items():
+            if value is not None:
+                class_values[name].append(value)
+    result["per_class_iou"] = {name: float(np.mean(values)) if values else None for name, values in class_values.items()}
+    result["pooled_valid_pixels"] = int(sum(record["valid_pixels"] for record in records))
+    return result
+```
+
+## Block 14 - Full-resolution complete evaluation and visual reports
+
+```python
+def evaluate_complete(model, split_samples, split_name, output_root, max_visuals=8):
+    output_root = Path(output_root)
+    visual_root = output_root / "visual_report" / split_name
+    visual_root.mkdir(parents=True, exist_ok=True)
+    records = []
+    pooled_values = {name: [] for name in ["all", *HEIGHT_RANGES, "ground", "non_ground", "building", "tall_structure"]}
+    group_records = defaultdict(list)
+    confusion = np.zeros((7, 7), dtype=np.int64)
+    model.eval()
+    with torch.inference_mode():
+        for index, sample in enumerate(split_samples):
+            image, target_height, target_classes, valid = load_triplet(sample, selected_keys)
+            predicted_height, predicted_semantic, predicted_boundary = tiled_predict(
+                model, image, device, CROP_SIZE, TILE_OVERLAP, height_scale,
+            )
+            predicted_classes = predicted_semantic.argmax(axis=0).astype(np.int64)
+            if predicted_height.shape != target_height.shape:
+                raise ValueError(f"Prediction shape mismatch for {sample.image}: {predicted_height.shape} vs {target_height.shape}")
+            if predicted_semantic.shape != (7, *target_classes.shape):
+                raise ValueError(f"Semantic shape mismatch for {sample.image}: {predicted_semantic.shape}")
+            if not np.isfinite(predicted_height).all() or not np.isfinite(predicted_semantic).all():
+                raise ValueError(f"Non-finite prediction for {sample.image}")
+            if predicted_height.std() <= 1e-8:
+                raise ValueError(f"Constant height prediction for {sample.image}")
+            if predicted_classes.min() < 0 or predicted_classes.max() > 6:
+                raise ValueError(f"Invalid semantic IDs for {sample.image}")
+
+            valid_mask = valid.astype(bool)
+            target_building = target_classes == BUILDING_CLASS
+            record = metric_triplet(predicted_height[valid_mask], target_height[valid_mask])
+            record.update(semantic_scores(predicted_classes, target_classes, valid_mask))
+            record["boundary_head_f1"] = f1(
+                (predicted_boundary >= 0.0) & valid_mask,
+                building_boundary(target_classes) & valid_mask,
+            )
+            record["sample"] = sample.image.name
+            record["group"] = sample.group
+            record["valid_pixels"] = int(valid_mask.sum())
+            records.append(record)
+            group_records[sample.group].append(record)
+
+            flat_pred = predicted_classes[valid_mask]
+            flat_target = target_classes[valid_mask]
+            confusion += np.bincount(flat_target * 7 + flat_pred, minlength=49).reshape(7, 7)
+
+            masks = {
+                "all": valid_mask,
+                "ground": valid_mask & (target_classes == 1),
+                "non_ground": valid_mask & (target_classes != 1),
+                "building": valid_mask & target_building,
+                "tall_structure": valid_mask & (target_height >= 10.0),
+            }
+            for name, (lower, upper) in HEIGHT_RANGES.items():
+                masks[name] = valid_mask & (target_height >= lower) & (target_height < upper)
+            for name, mask in masks.items():
+                if mask.any():
+                    pooled_values[name].append((predicted_height[mask].astype(np.float64), target_height[mask].astype(np.float64)))
+
+            if index < max_visuals:
+                target_boundary = building_boundary(target_classes)
+                figure, axes = plt.subplots(2, 4, figsize=(18, 9))
+                panels = [
+                    (image, "RGB", None),
+                    (target_height, "Reference nDSM", "magma"),
+                    (predicted_height, "Predicted nDSM", "magma"),
+                    (np.abs(predicted_height - target_height), "Absolute error", "inferno"),
+                    (target_classes, "Reference semantics", "tab10"),
+                    (predicted_classes, "Predicted semantics", "tab10"),
+                    (target_boundary, "Reference boundary", "gray"),
+                    (predicted_boundary >= 0.0, "Predicted boundary", "gray"),
+                ]
+                for axis, (values, title, cmap) in zip(axes.ravel(), panels):
+                    axis.imshow(values, cmap=cmap, vmin=0 if cmap == "tab10" else None, vmax=6 if cmap == "tab10" else None)
+                    axis.set_title(title)
+                    axis.axis("off")
+                figure.suptitle(sample.image.name)
+                figure.tight_layout()
+                figure.savefig(visual_root / f"{index:04d}_{sample.image.stem}.png", dpi=130)
+                plt.close(figure)
+
+    def pooled(name):
+        if not pooled_values[name]:
+            return {"rmse": None, "mae": None, "correlation": None, "count": 0}
+        predicted = np.concatenate([pair[0] for pair in pooled_values[name]])
+        target = np.concatenate([pair[1] for pair in pooled_values[name]])
+        return metric_triplet(predicted, target)
+
+    macro = aggregate_metric_records(records)
+    confidence = {
+        name: bootstrap_interval([record.get(name) for record in records], seed=SEED + index)
+        for index, name in enumerate(["rmse", "mae", "correlation", "semantic_miou", "building_iou", "building_f1", "semantic_building_boundary_f1", "boundary_head_f1"])
+    }
+    report = {
+        "split": split_name,
+        "sample_count": len(records),
+        "pooled": {name: pooled(name) for name in pooled_values},
+        "macro": macro,
+        "confidence_intervals": confidence,
+        "height_ranges": {name: pooled(name) for name in HEIGHT_RANGES},
+        "building_metrics": {name: pooled(name) for name in ("building", "non_ground", "ground")},
+        "tall_structure_metrics": pooled("tall_structure"),
+        "semantic": {
+            "per_class_iou": macro["per_class_iou"],
+            "miou": macro["macro_semantic_miou"],
+            "building_iou": macro["macro_building_iou"],
+            "building_f1": macro["macro_building_f1"],
+            "building_boundary_f1": macro["macro_semantic_building_boundary_f1"],
+            "boundary_head_f1": macro["macro_boundary_head_f1"],
+            "confusion_matrix": confusion.tolist(),
+        },
+        "by_group": {group: aggregate_metric_records(values) for group, values in group_records.items()},
+        "per_sample": records,
+    }
+    return report
+
+if RUN_COMPLETE_METRICS:
+    evaluation_model = build_depthwizard_model(MODEL_ID).to(device)
+    evaluation_checkpoint = torch.load(
+        (SMOKE_ROOT / "dinosaur.pth") if not RUN_FINAL_TRAINING else (WORK_ROOT / "dinosaur.pth"),
+        map_location=device,
+        weights_only=False,
+    )
+    evaluation_model.load_state_dict(evaluation_checkpoint["state_dict"], strict=True)
+    active_output = WORK_ROOT if RUN_FINAL_TRAINING else SMOKE_ROOT
+    validation_complete = evaluate_complete(evaluation_model, samples["val"], "validation", active_output)
+    test_complete = evaluate_complete(evaluation_model, samples["test"], "test", active_output)
+    complete_metrics = {
+        "validation": validation_complete,
+        "test": test_complete,
+        "dataset": manifest["dataset"],
+        "height_scale": height_scale,
+        "tile_size": CROP_SIZE,
+        "tile_overlap": TILE_OVERLAP,
+    }
+    (active_output / "metrics_complete.json").write_text(json.dumps(complete_metrics, indent=2, allow_nan=False) + "\n")
+    with (active_output / "metrics_by_tile.jsonl").open("w") as handle:
+        for split_report in (validation_complete, test_complete):
+            for record in split_report["per_sample"]:
+                handle.write(json.dumps({"split": split_report["split"], **record}, allow_nan=False) + "\n")
+    print(json.dumps({
+        "validation_pooled": validation_complete["pooled"]["all"],
+        "validation_macro": validation_complete["macro"],
+        "test_pooled": test_complete["pooled"]["all"],
+        "test_macro": test_complete["macro"],
+    }, indent=2))
+else:
+    print("Complete metric evaluation disabled")
+```
+
+## Block 15 - Final 50-epoch training
+
+Run this block only after the smoke-test and production-wrapper gates pass.
+Change only `RUN_FINAL_TRAINING` from `False` to `True` in Block 2.
+
+```python
+if RUN_FINAL_TRAINING:
+    command = [
+        sys.executable,
+        str(SRC_ROOT / "training" / "kaggle_final_train.py"),
+        "--root", str(GAMUS_ROOT),
+        "--output-dir", str(WORK_ROOT),
+        "--dataset-id", DATASET_ID,
+        "--dataset-revision", DATASET_REVISION,
+        "--image-key", selected_keys["image"],
+        "--height-key", selected_keys["height"],
+        "--class-key", selected_keys["classes"],
+        "--model-id", MODEL_ID,
+        "--crop-size", str(CROP_SIZE),
+        "--batch-size", str(BATCH_SIZE),
+        "--accumulation", str(ACCUMULATION),
+        "--num-workers", str(NUM_WORKERS),
+        "--epochs", str(FINAL_EPOCHS),
+        "--crops-per-sample", str(FINAL_CROPS_PER_SAMPLE),
+    ]
+    env = os.environ.copy()
+    env["PYTHONPATH"] = str(SRC_ROOT) + os.pathsep + env.get("PYTHONPATH", "")
+    subprocess.run(command, check=True, env=env, cwd=SRC_ROOT)
+    shutil.copy2(AUDIT_PATH, WORK_ROOT / "gamus_manifest.json")
+    shutil.copy2(AUDIT_PATH, WORK_ROOT / "dataset_audit.json")
+    print("Final training completed:", WORK_ROOT)
+else:
+    print("Final training is disabled. Set RUN_FINAL_TRAINING=True after smoke acceptance.")
+```
+
+## Block 16 - Final checkpoint reload and export
+
+```python
+active_output = WORK_ROOT if RUN_FINAL_TRAINING else SMOKE_ROOT
+active_checkpoint_path = active_output / "dinosaur.pth"
+active_checkpoint = torch.load(active_checkpoint_path, map_location="cpu", weights_only=False)
+
+required_checkpoint_fields = [
+    "checkpoint_format", "state_dict", "model_id", "image_size", "crop_size",
+    "tile_overlap", "class_names", "class_count", "building_class", "mean", "std",
+    "height_scale", "height_target_type", "h5_keys", "dataset", "validation_metrics",
+    "test_metrics", "training_config",
+]
+missing = [field for field in required_checkpoint_fields if field not in active_checkpoint]
+if missing:
+    raise AssertionError(f"Checkpoint is missing fields: {missing}")
+assert active_checkpoint["checkpoint_format"] == "depthwizard_dpt_multiscale_v2"
+assert tuple(active_checkpoint["class_names"]) == tuple(class_names)
+assert active_checkpoint["class_count"] == 7
+assert active_checkpoint["building_class"] == 3
+assert active_checkpoint["crop_size"] == CROP_SIZE
+assert abs(float(active_checkpoint["tile_overlap"]) - TILE_OVERLAP) < 1e-8
+assert "decoder" in " ".join(active_checkpoint["state_dict"].keys())
+assert any(key.startswith("boundary_head") for key in active_checkpoint["state_dict"])
+
+# Keep the strict manifest and complete metrics beside the model.
+shutil.copy2(AUDIT_PATH, active_output / "gamus_manifest.json")
+shutil.copy2(AUDIT_PATH, active_output / "dataset_audit.json")
+if (active_output / "metrics_complete.json").exists():
+    active_checkpoint["complete_metrics"] = json.loads((active_output / "metrics_complete.json").read_text())
+    torch.save(active_checkpoint, active_checkpoint_path)
+
+production_checkpoint = Path("/kaggle/working/dinosaur.pth")
+shutil.copy2(active_checkpoint_path, production_checkpoint)
+print(json.dumps({
+    "production_checkpoint": str(production_checkpoint),
+    "size_mb": round(production_checkpoint.stat().st_size / 1024**2, 2),
+    "format": active_checkpoint["checkpoint_format"],
+    "height_scale": active_checkpoint["height_scale"],
+    "semantic_classes": active_checkpoint["class_names"],
+}, indent=2))
+```
+
+## Block 17 - Final production-load verification
+
+```python
+if RUN_PRODUCTION_CHECK:
+    final_service = DepthAnythingModelService(production_checkpoint, device=str(device))
+    verification_image = Image.fromarray(np.zeros((1024, 1024, 3), dtype=np.uint8), mode="RGB")
+    verification_result = final_service.predict_result(verification_image)
+    assert verification_result["height"].shape == (1024, 1024)
+    assert verification_result["semantic"].shape == (7, 1024, 1024)
+    assert np.isfinite(verification_result["height"]).all()
+    assert np.isfinite(verification_result["semantic"]).all()
+    semantic_ids = verification_result["semantic"].argmax(axis=0)
+    assert semantic_ids.min() >= 0 and semantic_ids.max() <= 6
+    print({
+        "checkpoint_load": "passed",
+        "height_shape": verification_result["height"].shape,
+        "semantic_shape": verification_result["semantic"].shape,
+        "height_std": float(verification_result["height"].std()),
+        "semantic_ids": [int(semantic_ids.min()), int(semantic_ids.max())],
+    })
+```
+
+## Block 18 - Renderer and artifact contract
+
+```python
+artifact_names = [
+    "dinosaur.pth",
+    "model_config.json",
+    "metrics.json",
+    "metrics_complete.json",
+    "metrics_by_tile.jsonl",
+    "gamus_manifest.json",
+    "dataset_audit.json",
+    "class_histogram.png",
+    "height_distribution.png",
+    "visual_report",
+]
+
+missing_artifacts = [name for name in artifact_names if not (active_output / name).exists()]
+if missing_artifacts:
+    # The repository trainer uses validation_visuals/test_visuals. Keep its output
+    # while exposing the required visual_report directory as well.
+    visual_report = active_output / "visual_report"
+    visual_report.mkdir(exist_ok=True)
+    for legacy_name, target_name in (("validation_visuals", "validation"), ("test_visuals", "test")):
+        legacy = active_output / legacy_name
+        target = visual_report / target_name
+        if legacy.exists() and not target.exists():
+            shutil.copytree(legacy, target)
+    missing_artifacts = [name for name in artifact_names if not (active_output / name).exists()]
+
+if missing_artifacts:
+    raise FileNotFoundError(f"Missing final artifacts: {missing_artifacts}")
+
+renderer_contract = {
+    "height_source": "full-resolution tiled nDSM before frontend reduction",
+    "semantic_source": "full-resolution seven-class logits before argmax/downsampling",
+    "building_class": 3,
+    "class_names": class_names,
+    "height_scale": float(active_checkpoint["height_scale"]),
+    "tile_size": CROP_SIZE,
+    "tile_overlap": TILE_OVERLAP,
+    "tree_policy": "frontend must keep trees disabled by default and cap instances",
+    "building_policy": "backend must extract building regions before scene-grid reduction",
+    "height_units": "meters relative nDSM unless GeoTIFF calibration succeeds",
+}
+(active_output / "renderer_contract.json").write_text(json.dumps(renderer_contract, indent=2) + "\n")
+print(json.dumps({"output": str(active_output), "artifacts": artifact_names}, indent=2))
+```
+
+## Block 19 - Optional archive for Kaggle output
+
+```python
+archive_path = shutil.make_archive("/kaggle/working/depthwizard_artifacts", "zip", active_output)
+print("Kaggle output archive:", archive_path)
+```
+
+The production file to download is:
+
+```text
+/kaggle/working/dinosaur.pth
+```
+
+For the hackathon backend, place that file at the repository root as
+`dinosaur.pth`, or set `DEPTHWIZARD_CHECKPOINT` to its absolute path. PNG/JPEG
+results are relative estimated nDSM. Absolute metric DSM output is only valid
+for a georeferenced RGB/RGBA GeoTIFF with CRS and successful ground calibration.

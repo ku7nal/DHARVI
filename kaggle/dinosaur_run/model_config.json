@@ -1,0 +1,20 @@
+{
+  "checkpoint_format": "depthwizard_dpt_multiscale_v2",
+  "model_id": "depth-anything/Depth-Anything-V2-Base-hf",
+  "image_size": 518,
+  "height_scale": 35.74811553955078,
+  "class_names": [
+    "others",
+    "ground",
+    "low_vegetation",
+    "building",
+    "water",
+    "road",
+    "tree"
+  ],
+  "h5_keys": {
+    "image": "image",
+    "height": "image",
+    "classes": "image"
+  }
+}

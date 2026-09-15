@@ -1,0 +1,71 @@
+7.0s 1 0.00s - Debugger warning: It seems that frozen modules are being used, which may
+7.0s 2 0.00s - make the debugger miss breakpoints. Please pass -Xfrozen_modules=off
+7.0s 3 0.00s - to python to disable frozen modules.
+7.0s 4 0.00s - Note: Debugging will proceed. Set PYDEVD_DISABLE_FILE_VALIDATION=1 to disable this validation.
+7.6s 5 0.00s - Debugger warning: It seems that frozen modules are being used, which may
+7.6s 6 0.00s - make the debugger miss breakpoints. Please pass -Xfrozen_modules=off
+7.6s 7 0.00s - to python to disable frozen modules.
+7.6s 8 0.00s - Note: Debugging will proceed. Set PYDEVD_DISABLE_FILE_VALIDATION=1 to disable this validation.
+15.8s 9 Starting download of GAMUS .h5 shards from Hugging Face...
+17.0s 10 Warning: You are sending unauthenticated requests to the HF Hub. Please set a HF_TOKEN to enable higher rate limits and faster downloads.
+17.0s 11 
+17.0s 12 Warning: You are sending unauthenticated requests to the HF Hub. Please set a HF_TOKEN to enable higher rate limits and faster downloads.
+302.1s 13 Download complete! Checking downloaded files:
+302.1s 14 ./dataset
+302.1s 15 ./dataset/images
+302.1s 16 ./dataset/images/val
+302.1s 17 ./dataset/images/train
+302.1s 18 ./dataset/.cache
+302.1s 19 ./dataset/.cache/huggingface
+302.1s 20 ./dataset/.cache/huggingface/download
+302.1s 21 ./dataset/heights
+302.1s 22 ./dataset/heights/val
+302.1s 23 ./dataset/heights/train
+330.1s 24 --- Checking Images Train Directory ---
+330.1s 25 Found 1439 files. First 5: ['DC_26_14_RGB.h5', 'DC_48_59_RGB.h5', 'DC_25_41_RGB.h5', 'DC_51_28_RGB.h5', 'DC_38_41_RGB.h5']
+330.1s 26 
+330.1s 27 --- Checking Heights Train Directory ---
+330.1s 28 Found 1439 files. First 5: ['DC_09_20_AGL.h5', 'DC_33_58_AGL.h5', 'DC_27_36_AGL.h5', 'DC_32_37_AGL.h5', 'DC_42_41_AGL.h5']
+330.2s 29 Built 1439 pairs for train split.
+330.2s 30 Built 359 pairs for val split.
+330.2s 31 Number of training pairs: 1439
+330.2s 32 Number of validation pairs: 359
+330.5s 33 Using device: cuda
+333.7s 34 Trainable params: 24,032,065 / 24,785,089
+440.4s 35 Epoch 01/15 | Train Loss: 4.0287 | Val RMSE: 6.570m | MAE: 4.238m | Pearson R: 0.687 | LR: 1.70e-05
+440.4s 36 -> Best model saved: depth_anything_v2_gamus.pth (RMSE: 6.570)
+559.3s 37 Epoch 02/15 | Train Loss: 2.8298 | Val RMSE: 5.697m | MAE: 3.796m | Pearson R: 0.768 | LR: 3.35e-05
+559.3s 38 -> Best model saved: depth_anything_v2_gamus.pth (RMSE: 5.697)
+675.6s 39 Epoch 03/15 | Train Loss: 2.6829 | Val RMSE: 5.882m | MAE: 3.822m | Pearson R: 0.759 | LR: 5.00e-05
+792.6s 40 Epoch 04/15 | Train Loss: 2.6976 | Val RMSE: 5.827m | MAE: 3.833m | Pearson R: 0.758 | LR: 4.92e-05
+909.8s 41 Epoch 05/15 | Train Loss: 2.5052 | Val RMSE: 5.869m | MAE: 3.948m | Pearson R: 0.756 | LR: 4.67e-05
+1026.8s 42 Epoch 06/15 | Train Loss: 2.3812 | Val RMSE: 5.870m | MAE: 3.822m | Pearson R: 0.761 | LR: 4.28e-05
+1143.8s 43 Epoch 07/15 | Train Loss: 2.2808 | Val RMSE: 5.661m | MAE: 3.790m | Pearson R: 0.772 | LR: 3.78e-05
+1143.8s 44 -> Best model saved: depth_anything_v2_gamus.pth (RMSE: 5.661)
+1260.6s 45 Epoch 08/15 | Train Loss: 2.2252 | Val RMSE: 5.580m | MAE: 3.712m | Pearson R: 0.778 | LR: 3.18e-05
+1260.6s 46 -> Best model saved: depth_anything_v2_gamus.pth (RMSE: 5.580)
+1377.9s 47 Epoch 09/15 | Train Loss: 2.1109 | Val RMSE: 5.748m | MAE: 3.761m | Pearson R: 0.766 | LR: 2.55e-05
+1495.3s 48 Epoch 10/15 | Train Loss: 1.9992 | Val RMSE: 5.484m | MAE: 3.631m | Pearson R: 0.788 | LR: 1.92e-05
+1495.3s 49 -> Best model saved: depth_anything_v2_gamus.pth (RMSE: 5.484)
+1612.6s 50 Epoch 11/15 | Train Loss: 1.9326 | Val RMSE: 5.464m | MAE: 3.630m | Pearson R: 0.791 | LR: 1.33e-05
+1612.6s 51 -> Best model saved: depth_anything_v2_gamus.pth (RMSE: 5.464)
+1729.5s 52 Epoch 12/15 | Train Loss: 1.8585 | Val RMSE: 5.475m | MAE: 3.604m | Pearson R: 0.794 | LR: 8.18e-06
+1846.6s 53 Epoch 13/15 | Train Loss: 1.8000 | Val RMSE: 5.384m | MAE: 3.568m | Pearson R: 0.797 | LR: 4.28e-06
+1846.6s 54 -> Best model saved: depth_anything_v2_gamus.pth (RMSE: 5.384)
+1964.1s 55 Epoch 14/15 | Train Loss: 1.7688 | Val RMSE: 5.370m | MAE: 3.552m | Pearson R: 0.798 | LR: 1.83e-06
+1964.1s 56 -> Best model saved: depth_anything_v2_gamus.pth (RMSE: 5.370)
+2081.6s 57 Epoch 15/15 | Train Loss: 1.7191 | Val RMSE: 5.370m | MAE: 3.554m | Pearson R: 0.798 | LR: 1.00e-06
+2081.6s 58 -> Best model saved: depth_anything_v2_gamus.pth (RMSE: 5.370)
+2082.9s 59 Visualized: /kaggle/working/dataset/images/val/DC_16_21_RGB.h5
+2084.8s 60 Ready! Download 'depth_anything_v2_gamus.pth' from the Kaggle Output sidebar.
+2090.4s 61 /usr/local/lib/python3.12/dist-packages/mistune.py:435: SyntaxWarning: invalid escape sequence '\|'
+2090.4s 62 cells[i][c] = re.sub('\\\\\|', '|', cell)
+2090.6s 63 /usr/local/lib/python3.12/dist-packages/nbconvert/filters/filter_links.py:36: SyntaxWarning: invalid escape sequence '\_'
+2090.6s 64 text = re.sub(r'_', '\_', text) # Escape underscores in display text
+2091.2s 65 [NbConvertApp] Converting notebook __notebook__.ipynb to notebook
+2091.6s 66 [NbConvertApp] Writing 1825804 bytes to __notebook__.ipynb
+2093.9s 67 [NbConvertApp] Converting notebook __notebook__.ipynb to html
+2094.8s 68 [NbConvertApp] Support files will be in __results___files/
+2094.8s 69 [NbConvertApp] Making directory __results___files
+2094.8s 70 [NbConvertApp] Making directory __results___files
+2094.8s 71 [NbConvertApp] Writing 410378 bytes to __results__.html
