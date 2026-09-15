@@ -14,7 +14,7 @@ from rasterio.io import MemoryFile
 from app.building_footprints import clean_semantic_labels, extract_building_footprints
 from app.geospatial import calibrate_dsm, parse_ground_control_points, write_dsm_geotiff
 from app.model_service import DepthAnythingModelService, ModelUnavailableError
-from app.route_planner import plan_route
+from app.route_planner import plan_ranked_routes, plan_route
 from app.semantic_contract import BUILDING_CLASS, CLASS_COUNT, SEMANTIC_CLASSES
 
 MEDIA_DIR = Path(__file__).resolve().parent.parent / "media"
@@ -79,6 +79,9 @@ class RouteRequest(BaseModel):
     destination: RoutePoint
     blockedCells: list[RoutePoint] = Field(default_factory=list)
     avoidWater: bool = True
+    profile: str = "fastest"
+    heightData: list[float] | None = None
+    uncertaintyData: list[float] | None = None
 
 
 @app.get("/api/health")
@@ -89,13 +92,16 @@ def health() -> dict[str, str]:
 @app.post("/api/route")
 def route(request: RouteRequest) -> dict[str, object]:
     try:
-        return plan_route(
+        return plan_ranked_routes(
             request.semanticData,
             request.gridSize,
             request.start.model_dump(),
             request.destination.model_dump(),
             [point.model_dump() for point in request.blockedCells],
             request.avoidWater,
+            request.heightData,
+            request.uncertaintyData,
+            request.profile,
         )
     except ValueError as error:
         raise HTTPException(status_code=422, detail=str(error)) from error

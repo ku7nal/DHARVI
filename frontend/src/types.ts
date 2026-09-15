@@ -100,6 +100,25 @@ type RouteResult = {
   gridSize: number;
   distanceCells: number;
   hazards: RouteHazards;
+  profile: RouteProfile;
+  selectedIndex: number;
+  travelTimeMinutes: number;
+  riskScore: number;
+  accessibilityScore: number;
+  avoidedHazards: string[];
+  profileScore: number;
+  alternatives: RouteAlternative[];
+};
+
+type RouteProfile = "fastest" | "safest" | "accessible";
+type RouteAlternative = {
+  path: RoutePoint[];
+  distanceCells: number;
+  travelTimeMinutes: number;
+  riskScore: number;
+  accessibilityScore: number;
+  avoidedHazards: string[];
+  profileScore: number;
 };
 
 type RouteHazards = {
@@ -136,4 +155,4 @@ type BenchmarkResult = {
 };
 
 export { DEFAULT_SCENE_LAYERS };
-export type { BenchmarkResult, BuildingRegion, CalibrationMetadata, GeoSpatialMetadata, PredictionResult, RouteHazards, RoutePoint, RoutePoints, RouteResult, SceneLayers, SemanticClass };
+export type { BenchmarkResult, BuildingRegion, CalibrationMetadata, GeoSpatialMetadata, PredictionResult, RouteAlternative, RouteHazards, RoutePoint, RoutePoints, RouteProfile, RouteResult, SceneLayers, SemanticClass };

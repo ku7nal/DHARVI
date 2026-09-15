@@ -1,5 +1,5 @@
 import { useState, type ReactNode } from "react";
-import type { PredictionResult, RoutePoint, RoutePoints, RouteResult, SceneLayers } from "../types";
+import type { PredictionResult, RoutePoint, RoutePoints, RouteProfile, RouteResult, SceneLayers } from "../types";
 
 const API_BASE = "http://localhost:8000";
 
@@ -24,6 +24,8 @@ type PredictionInspectorProps = {
   onToggleWater: () => void;
   onClearDebris: () => void;
   onRemoveDebris: (index: number) => void;
+  routeProfile: RouteProfile;
+  onRouteProfileChange: (profile: RouteProfile) => void;
 };
 
 function InspectorSection({ title, children, defaultOpen = true }: { title: string; children: ReactNode; defaultOpen?: boolean }) {
@@ -49,7 +51,7 @@ function LayerToggle({ label, description, active, onClick }: { label: string; d
   );
 }
 
-function PredictionInspector({ isOpen, prediction, layers, onToggleLayer, onClose, route, routePoints, routeSelectionMode, routeState, routeError, routeNotice, avoidWater, debrisZones, onRouteModeChange, onPlanRoute, onLoadDemoRoute, onClearRoute, onToggleWater, onClearDebris, onRemoveDebris }: PredictionInspectorProps) {
+function PredictionInspector({ isOpen, prediction, layers, onToggleLayer, onClose, route, routePoints, routeSelectionMode, routeState, routeError, routeNotice, avoidWater, debrisZones, routeProfile, onRouteModeChange, onRouteProfileChange, onPlanRoute, onLoadDemoRoute, onClearRoute, onToggleWater, onClearDebris, onRemoveDebris }: PredictionInspectorProps) {
   const semanticPayloadAligned = Boolean(
     prediction.semanticGridSize &&
     prediction.semanticGridSize === prediction.gridSize &&
@@ -127,6 +129,10 @@ function PredictionInspector({ isOpen, prediction, layers, onToggleLayer, onClos
             <button className={`route-button hazard-button ${avoidWater ? "active" : ""}`} onClick={onToggleWater}>Water hazards {avoidWater ? "on" : "off"}</button>
             <button className={`route-button hazard-button ${routeSelectionMode === "debris" ? "active" : ""}`} onClick={() => onRouteModeChange("debris")}>Mark debris area</button>
           </div>
+          <div className="route-profile-picker" aria-label="Route profile">
+            {(["fastest", "safest", "accessible"] as RouteProfile[]).map((profile) => <button key={profile} className={`route-button ${routeProfile === profile ? "active" : ""}`} onClick={() => onRouteProfileChange(profile)}>{profile[0].toUpperCase() + profile.slice(1)}</button>)}
+          </div>
+          <div className="route-hint">Profiles rank alternate roads by travel time, hazard exposure, terrain slope, and prediction confidence.</div>
           <div className="route-hazard-summary"><span>{debrisZones.length} debris zone{debrisZones.length === 1 ? "" : "s"}</span>{debrisZones.length > 0 && <button className="text-button" onClick={onClearDebris}>Clear all</button>}</div>
           {debrisZones.length > 0 && <div className="debris-zone-list">{debrisZones.map((zone, index) => <div key={`${zone.row}:${zone.column}`}><span>Zone {index + 1} · {zone.row}, {zone.column} · 3×3</span><button className="text-button" onClick={() => onRemoveDebris(index)}>Remove</button></div>)}</div>}
           <button className="primary-button route-plan-button" disabled={!routePoints.start || !routePoints.destination || routeState === "loading"} onClick={onPlanRoute}>{routeState === "loading" ? "Planning route…" : "Plan evacuation route"}</button>
@@ -134,7 +140,7 @@ function PredictionInspector({ isOpen, prediction, layers, onToggleLayer, onClos
           {routeSelectionMode !== "idle" && <div className="route-hint">Click the scene to {routeSelectionMode === "start" ? "set the origin on a road" : routeSelectionMode === "destination" ? "set the destination on a road" : "mark a temporary debris zone"}.</div>}
           {routeState === "error" && <div className="route-error">{routeError}</div>}
           {routeNotice && <div className="route-hint">{routeNotice}</div>}
-          {route && <div className="route-result"><strong>Route ready</strong><span>{route.distanceCells} road cells · {route.path.length} waypoints</span><span>{route.hazards.waterAvoidance ? `${route.hazards.waterCells} detected water cells excluded · ${route.hazards.waterBlockedRoadCells} road cells near water blocked` : "Water exclusion disabled"} · {route.hazards.blockedRoadCells} road cells blocked by debris</span><button className="text-button" onClick={onClearRoute}>Clear route</button></div>}
+          {route && <div className="route-result"><strong>{route.profile[0].toUpperCase() + route.profile.slice(1)} route selected</strong><span>{route.distanceCells} road cells · {route.travelTimeMinutes} min estimated · risk {route.riskScore}/100 · slope {route.accessibilityScore}/100</span><span>{route.hazards.waterAvoidance ? `${route.hazards.waterCells} detected water cells excluded · ${route.hazards.waterBlockedRoadCells} road cells near water blocked` : "Water exclusion disabled"} · {route.hazards.blockedRoadCells} road cells blocked by debris</span><span>{route.avoidedHazards.length ? `Avoided: ${route.avoidedHazards.join(", ")}` : "No active hazard exposure detected"}</span><div className="route-alternatives">{route.alternatives.map((alternative, index) => <div key={`alternative-${index}`} className={index === route.selectedIndex ? "selected" : ""}><span>Option {index + 1} · {alternative.distanceCells} cells · {alternative.travelTimeMinutes} min · risk {alternative.riskScore}</span><small>{alternative.avoidedHazards.length ? alternative.avoidedHazards.join(", ") : "baseline"}</small></div>)}</div><button className="text-button" onClick={onClearRoute}>Clear route</button></div>}
         </> : <div className="inspector-note">Evacuation routing requires an aligned semantic road mask. Use the GAMUS example to try the deterministic route demo.</div>}
       </InspectorSection>
 

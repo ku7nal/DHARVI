@@ -12,6 +12,16 @@ if (!response.ok) throw new Error(`Expected a valid route, received ${response.s
 const route = await response.json() as { path?: Array<{ row: number; column: number }>; distanceCells?: number; hazards?: { blockedRoadCells?: number } };
 if (route.distanceCells !== 4 || route.path?.length !== 5) throw new Error("Valid route response was not rendered as a five-cell path.");
 
+for (const profile of ["fastest", "safest", "accessible"]) {
+  const profiled = await fetch("http://127.0.0.1:8000/api/route", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ semanticData: Array.from({ length: 25 }, () => 5), gridSize: 5, start: { row: 2, column: 0 }, destination: { row: 2, column: 4 }, profile, heightData: Array.from({ length: 25 }, () => 0) }),
+  });
+  const profiledRoute = await profiled.json() as { profile?: string; alternatives?: Array<{ travelTimeMinutes?: number; riskScore?: number }> };
+  if (!profiled.ok || profiledRoute.profile !== profile || profiledRoute.alternatives?.length !== 3 || profiledRoute.alternatives.some((alternative) => typeof alternative.travelTimeMinutes !== "number" || typeof alternative.riskScore !== "number")) throw new Error(`${profile} route profile did not return ranked metrics.`);
+}
+
 const blocked = await fetch("http://127.0.0.1:8000/api/route", {
   method: "POST",
   headers: { "Content-Type": "application/json" },

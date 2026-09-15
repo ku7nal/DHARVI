@@ -272,19 +272,24 @@ function routeMarker(point: RoutePoint, gridSize: number, heightData: number[], 
 
 function RouteOverlay({ route, routePoints, debrisZones, heightData, gridSize, maxHeight }: { route?: RouteResult | null; routePoints?: RoutePoints; debrisZones?: RoutePoint[]; heightData: number[]; gridSize: number; maxHeight: number }) {
   const verticalScale = 3.6 / Math.max(maxHeight, 1);
-  const pathPoints = route?.path.map((point) => {
-    const scenePoint = routePointToSceneCell(point, route.gridSize, gridSize);
+  const toScenePoints = (path: RoutePoint[], routeGridSize: number) => path.map((point) => {
+    const scenePoint = routePointToSceneCell(point, routeGridSize, gridSize);
     const index = scenePoint.row * gridSize + scenePoint.column;
     return new THREE.Vector3(
       (scenePoint.column / Math.max(gridSize - 1, 1) - 0.5) * WORLD_WIDTH,
       (heightData[index] ?? 0) * verticalScale + 0.16,
       (scenePoint.row / Math.max(gridSize - 1, 1) - 0.5) * WORLD_DEPTH,
     );
-  }) ?? [];
+  });
+  const pathPoints = route ? toScenePoints(route.path, route.gridSize) : [];
   const start = route?.start ? routePointToSceneCell(route.start, route.gridSize, gridSize) : routePoints?.start;
   const destination = route?.destination ? routePointToSceneCell(route.destination, route.gridSize, gridSize) : routePoints?.destination;
   return <group userData={{ evacuationRoute: Boolean(route) }}>
-    {pathPoints.length > 1 && <Line points={pathPoints} color="#f26d4f" lineWidth={4} />}
+    {route?.alternatives?.map((alternative, index) => {
+      const alternativePoints = toScenePoints(alternative.path, route.gridSize);
+      return alternativePoints.length > 1 && <Line key={`alternative-${index}`} points={alternativePoints} color={index === route.selectedIndex ? "#f26d4f" : "#a69bbd"} lineWidth={index === route.selectedIndex ? 4 : 1.5} transparent opacity={index === route.selectedIndex ? 1 : 0.45} />;
+    })}
+    {!route?.alternatives?.length && pathPoints.length > 1 && <Line points={pathPoints} color="#f26d4f" lineWidth={4} />}
     {start && routeMarker(start, gridSize, heightData, maxHeight, "#278f72")}
     {destination && routeMarker(destination, gridSize, heightData, maxHeight, "#d95757")}
     {debrisZones && expandDebrisZones(debrisZones, gridSize).map((cell) => <mesh key={`debris-${cell.row}:${cell.column}`} position={[(cell.column / Math.max(gridSize - 1, 1) - 0.5) * WORLD_WIDTH, 0.18, (cell.row / Math.max(gridSize - 1, 1) - 0.5) * WORLD_DEPTH]}>

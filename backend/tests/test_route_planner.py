@@ -1,6 +1,6 @@
 import unittest
 
-from app.route_planner import plan_route
+from app.route_planner import plan_ranked_routes, plan_route
 
 
 class RoutePlannerTests(unittest.TestCase):
@@ -85,6 +85,65 @@ class RoutePlannerTests(unittest.TestCase):
 
         with self.assertRaisesRegex(ValueError, "start must not be adjacent"):
             plan_route(labels, 5, {"row": 1, "column": 1}, {"row": 2, "column": 4})
+
+    def test_ranked_routes_expose_three_profiles_and_stable_order(self) -> None:
+        labels = [0] * 49
+        for row in range(7):
+            for column in range(7):
+                if row in (1, 3, 5) or column in (0, 6):
+                    labels[row * 7 + column] = 5
+        heights = [0.0] * 49
+        for column in range(1, 6):
+            heights[3 * 7 + column] = 20.0
+
+        fastest = plan_ranked_routes(labels, 7, {"row": 3, "column": 0}, {"row": 3, "column": 6}, height_data=heights, profile="fastest")
+        safest = plan_ranked_routes(labels, 7, {"row": 3, "column": 0}, {"row": 3, "column": 6}, height_data=heights, profile="safest")
+
+        self.assertEqual(fastest["profile"], "fastest")
+        self.assertEqual(len(fastest["alternatives"]), 3)
+        self.assertEqual([item["profileScore"] for item in fastest["alternatives"]], sorted(item["profileScore"] for item in fastest["alternatives"]))
+        self.assertEqual(fastest["path"], plan_ranked_routes(labels, 7, {"row": 3, "column": 0}, {"row": 3, "column": 6}, height_data=heights, profile="fastest")["path"])
+        self.assertLess(fastest["distanceCells"], safest["distanceCells"])
+        self.assertGreater(safest["riskScore"], 0)
+        self.assertLess(safest["riskScore"], fastest["riskScore"])
+
+    def test_accessible_profile_prefers_lower_slope_route(self) -> None:
+        labels = [0] * 49
+        for column in range(7):
+            labels[3 * 7 + column] = 5
+        for row in range(7):
+            labels[row * 7] = 5
+            labels[row * 7 + 6] = 5
+        for column in range(7):
+            labels[1 * 7 + column] = 5
+            labels[5 * 7 + column] = 5
+        heights = [0.0] * 49
+        for column, value in enumerate((0.0, 10.0, 20.0, 30.0, 20.0, 10.0, 0.0)):
+            heights[3 * 7 + column] = value
+
+        result = plan_ranked_routes(labels, 7, {"row": 3, "column": 0}, {"row": 3, "column": 6}, height_data=heights, profile="accessible")
+
+        self.assertEqual(result["profile"], "accessible")
+        self.assertGreater(result["distanceCells"], 6)
+        self.assertLess(result["accessibilityScore"], 10)
+
+    def test_uncertainty_and_building_proximity_raise_risk(self) -> None:
+        labels = [5] * 25
+        labels[5] = 3
+        uncertainty = [0.0] * 25
+        uncertainty[12] = 1.0
+
+        result = plan_ranked_routes(labels, 5, {"row": 2, "column": 0}, {"row": 2, "column": 4}, uncertainty_data=uncertainty, profile="safest")
+
+        self.assertGreater(result["riskScore"], 0)
+        self.assertIn("prediction uncertainty", result["avoidedHazards"])
+
+    def test_rejects_malformed_or_non_finite_route_features(self) -> None:
+        labels = [5] * 9
+        with self.assertRaisesRegex(ValueError, "exactly 9 cells"):
+            plan_ranked_routes(labels, 3, {"row": 0, "column": 0}, {"row": 2, "column": 2}, height_data=[])
+        with self.assertRaisesRegex(ValueError, "finite numeric"):
+            plan_ranked_routes(labels, 3, {"row": 0, "column": 0}, {"row": 2, "column": 2}, height_data=[float("nan")] * 9)
 
 
 if __name__ == "__main__":

@@ -5,7 +5,7 @@ import humanIcon from "./components/human.png";
 import worldwideIcon from "./components/worldwide.png";
 import { ReconstructionViewer } from "./scene/ReconstructionViewer";
 import { expandDebrisZones } from "./routePlanner";
-import { DEFAULT_SCENE_LAYERS, type BenchmarkResult, type PredictionResult, type RoutePoint, type RoutePoints, type RouteResult, type SceneLayers } from "./types";
+import { DEFAULT_SCENE_LAYERS, type BenchmarkResult, type PredictionResult, type RoutePoint, type RoutePoints, type RouteProfile, type RouteResult, type SceneLayers } from "./types";
 
 type NavItem = "New reconstruction" | "Examples" | "About";
 type PredictionState = "idle" | "processing" | "success" | "error";
@@ -54,6 +54,8 @@ function App() {
   const [routeNotice, setRouteNotice] = useState<string | null>(null);
   const [avoidWater, setAvoidWater] = useState(true);
   const [debrisZones, setDebrisZones] = useState<RoutePoint[]>([]);
+  const [routeProfile, setRouteProfile] = useState<RouteProfile>("fastest");
+  const routeRequestId = useRef(0);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -108,6 +110,7 @@ function App() {
       setRouteNotice(null);
       setAvoidWater(true);
       setDebrisZones([]);
+      setRouteProfile("fastest");
       if (exampleId === "gamus-urban-demo" && nextPrediction.semanticData?.length && nextPrediction.semanticGridSize) {
         const points = { start: { row: Math.round(nextPrediction.semanticGridSize * 0.47), column: 2 }, destination: { row: Math.round(nextPrediction.semanticGridSize * 0.47), column: nextPrediction.semanticGridSize - 4 } };
         setRoutePoints(points);
@@ -151,8 +154,10 @@ function App() {
     setRouteState("idle");
   }
 
-  async function requestRoute(points = routePoints, sourcePrediction = prediction, zones = debrisZones, waterAvoidance = avoidWater, notice?: string) {
+  async function requestRoute(points = routePoints, sourcePrediction = prediction, zones = debrisZones, waterAvoidance = avoidWater, notice?: string, selectedProfile = routeProfile) {
     if (!sourcePrediction?.semanticData?.length || !sourcePrediction.semanticGridSize || !points.start || !points.destination) return;
+    const requestId = routeRequestId.current + 1;
+    routeRequestId.current = requestId;
     setRouteState("loading");
     setRouteError(null);
     setRouteNotice(null);
@@ -160,15 +165,17 @@ function App() {
       const response = await fetch("http://localhost:8000/api/route", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ semanticData: sourcePrediction.semanticData, gridSize: sourcePrediction.semanticGridSize, start: points.start, destination: points.destination, blockedCells: expandDebrisZones(zones, sourcePrediction.semanticGridSize), avoidWater: waterAvoidance }),
+        body: JSON.stringify({ semanticData: sourcePrediction.semanticData, gridSize: sourcePrediction.semanticGridSize, start: points.start, destination: points.destination, blockedCells: expandDebrisZones(zones, sourcePrediction.semanticGridSize), avoidWater: waterAvoidance, profile: selectedProfile, heightData: sourcePrediction.heightData, uncertaintyData: sourcePrediction.boundaryData?.length === sourcePrediction.semanticGridSize ** 2 ? sourcePrediction.boundaryData.map((value) => Math.min(value, 1 - value) * 2) : undefined }),
       });
       const body = await response.json() as RouteResult | { detail?: string };
       if (!response.ok) throw new Error("detail" in body ? body.detail : "Route could not be generated.");
+      if (requestId !== routeRequestId.current) return;
       setRoute(body as RouteResult);
       setRoutePoints({ start: (body as RouteResult).start, destination: (body as RouteResult).destination });
       setRouteState("ready");
       setRouteNotice(notice ?? null);
     } catch (error) {
+      if (requestId !== routeRequestId.current) return;
       setRoute(null);
       setRouteState("error");
       setRouteNotice(null);
@@ -198,6 +205,11 @@ function App() {
     const nextZones = debrisZones.filter((_, zoneIndex) => zoneIndex !== index);
     setDebrisZones(nextZones);
     if (routePoints.start && routePoints.destination) void requestRoute(routePoints, prediction, nextZones, avoidWater, "Route recalculated after removing a debris zone.");
+  }
+
+  function changeRouteProfile(profile: RouteProfile) {
+    setRouteProfile(profile);
+    if (routePoints.start && routePoints.destination) void requestRoute(routePoints, prediction, debrisZones, avoidWater, `${profile[0].toUpperCase()}${profile.slice(1)} route selected.`, profile);
   }
 
   const statusLabel = backendStatus === "online" ? "API connected" : backendStatus === "offline" ? "API offline" : "Checking API";
@@ -300,6 +312,8 @@ function App() {
                       onToggleWater={toggleWaterAvoidance}
                       onClearDebris={clearDebrisZones}
                       onRemoveDebris={removeDebrisZone}
+                      routeProfile={routeProfile}
+                      onRouteProfileChange={changeRouteProfile}
                       onPlanRoute={() => void requestRoute()}
                       onLoadDemoRoute={loadDemoRoute}
                       onClearRoute={() => { setRoute(null); setRoutePoints({}); setRouteState("idle"); setRouteError(null); }}

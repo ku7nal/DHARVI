@@ -66,6 +66,23 @@ class HealthEndpointTests(unittest.TestCase):
         self.assertEqual(response.status_code, 422)
         self.assertIn("active hazards", response.json()["detail"])
 
+    def test_route_endpoint_returns_ranked_profile_alternatives(self) -> None:
+        payload = {
+            "semanticData": [5] * 25,
+            "gridSize": 5,
+            "start": {"row": 2, "column": 0},
+            "destination": {"row": 2, "column": 4},
+            "heightData": [0.0] * 25,
+            "uncertaintyData": [0.0] * 25,
+        }
+        for profile in ("fastest", "safest", "accessible"):
+            response = TestClient(app).post("/api/route", json={**payload, "profile": profile})
+            self.assertEqual(response.status_code, 200)
+            body = response.json()
+            self.assertEqual(body["profile"], profile)
+            self.assertEqual(len(body["alternatives"]), 3)
+            self.assertIn("travelTimeMinutes", body["alternatives"][0])
+
     def test_1024_tile_starts_cover_both_image_edges_with_overlap(self) -> None:
         service = DepthAnythingModelService(main_module.CHECKPOINT_PATH)
         starts = service._tile_starts(1024)
