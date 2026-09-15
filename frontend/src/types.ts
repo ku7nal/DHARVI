@@ -49,7 +49,7 @@ type BuildingRegion = {
   width: number;
   depth: number;
   height: number;
-  roofType: "flat" | "gabled" | "hipped" | "dome";
+  roofType: "flat" | "stepped" | "gabled" | "hipped" | "dome";
   source: string;
   footprint?: Array<[number, number]>;
   holes?: Array<Array<[number, number]>>;

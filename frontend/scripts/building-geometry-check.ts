@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import type { BuildingRegion } from "../src/types.ts";
-import { createBuildingExtrusionGeometry } from "../src/buildingGeometry.ts";
+import { createBuildingExtrusionGeometry, createRoofGeometry } from "../src/buildingGeometry.ts";
 
 const region: BuildingRegion = {
   centerX: 0,
@@ -33,5 +33,22 @@ irregularGeometry.computeBoundingBox();
 assert.ok(irregularGeometry.boundingBox);
 assert.ok(irregularGeometry.getAttribute("position").count > geometry.getAttribute("position").count);
 irregularGeometry.dispose();
+
+const gabledRoof = createRoofGeometry(region, 1, 15, 11);
+assert.ok(gabledRoof);
+gabledRoof.computeBoundingBox();
+assert.ok(gabledRoof.boundingBox);
+assert.ok(Math.abs(gabledRoof.boundingBox.min.y - 3) < 1e-6);
+assert.ok(gabledRoof.boundingBox.max.y > 3.9);
+gabledRoof.dispose();
+
+const steppedRoof = createRoofGeometry({ ...region, roofType: "stepped", roofRise: 0.8 }, 1, 15, 11);
+assert.ok(steppedRoof);
+steppedRoof.computeBoundingBox();
+assert.ok(steppedRoof.boundingBox && steppedRoof.boundingBox.max.y > 3.3);
+steppedRoof.dispose();
+
+assert.equal(createRoofGeometry({ ...region, roofType: "flat" }, 1, 15, 11), null);
+assert.equal(createRoofGeometry({ ...region, footprint: [[-0.2, -0.15], [0.05, -0.15], [0.05, -0.03], [0.2, -0.03], [0.2, 0.15], [-0.2, 0.15]] }, 1, 15, 11), null);
 
 console.log("building extrusion geometry fixture passed");

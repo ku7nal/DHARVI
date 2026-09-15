@@ -1,12 +1,12 @@
 import { Canvas } from "@react-three/fiber";
 import { ContactShadows, FlyControls, OrbitControls, PerformanceMonitor, PerspectiveCamera, useTexture } from "@react-three/drei";
-import { Suspense, useEffect, useMemo, useState } from "react";
+import { Suspense, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import * as THREE from "three";
 import type { BuildingRegion, SceneLayers, SemanticClass } from "../types";
-import { createBuildingExtrusionGeometry } from "../buildingGeometry";
+import { createBuildingExtrusionGeometry, createRoofGeometry } from "../buildingGeometry";
 import { getBuildingLayout } from "../sceneGeometry";
-import { validateSceneQuality } from "../sceneQuality";
-import { BUILDING, SEMANTIC_LAYER_DEFINITIONS, createSemanticSurfaceGeometry, getSemanticClassColor, getVisibleSemanticClassIds, prepareSemanticTerrain } from "../semanticTerrain";
+import { MAX_TREE_INSTANCES, getBuildingDetailLevel, validateSceneQuality } from "../sceneQuality";
+import { BUILDING, SEMANTIC_LAYER_DEFINITIONS, TREE, createSemanticSurfaceGeometry, getSemanticClassColor, getVisibleSemanticClassIds, prepareSemanticTerrain } from "../semanticTerrain";
 
 type ReconstructionViewerProps = {
   heightData: number[];
@@ -24,6 +24,80 @@ type CameraMode = "isometric" | "top" | "fly";
 
 const WORLD_WIDTH = 15;
 const WORLD_DEPTH = 11;
+
+const BUILDING_MATERIAL_VARIANTS = ["#c7cbd1", "#c4c9d2", "#cbd0d5", "#bfc6d0", "#d0d1d0"];
+
+function getBuildingMaterialColor(region: BuildingRegion, index: number, semanticClasses?: SemanticClass[]): string {
+  const semanticColor = getSemanticClassColor(BUILDING, semanticClasses);
+  const seed = Math.abs(Math.round((region.centerX * 97 + region.centerZ * 53) * 1000)) + index;
+  if (semanticColor === "#c7cbd1") return BUILDING_MATERIAL_VARIANTS[seed % BUILDING_MATERIAL_VARIANTS.length];
+  return new THREE.Color(semanticColor).offsetHSL(0, 0, ((seed % 5) - 2) * 0.025).getHexString().replace(/^/, "#");
+}
+
+function getRoofType(region: BuildingRegion): BuildingRegion["roofType"] {
+  if (region.roofType !== "flat") return region.roofType;
+  const area = region.width * region.depth;
+  return getBuildingDetailLevel(region) === "lod2" && area > 0.045 ? "stepped" : "flat";
+}
+
+type TreePoint = { x: number; y: number; z: number; scale: number };
+
+function getTreePoints(terrain: ReturnType<typeof prepareSemanticTerrain>, maxHeight: number, exaggeration: number): TreePoint[] {
+  const treeCells = terrain.classes.reduce((count, classId) => count + (classId === TREE ? 1 : 0), 0);
+  if (!treeCells) return [];
+  const stride = Math.max(1, Math.ceil(Math.sqrt(treeCells / MAX_TREE_INSTANCES)));
+  const verticalScale = 3.6 / Math.max(maxHeight, 1) * exaggeration;
+  const points: TreePoint[] = [];
+  for (let row = 0; row < terrain.gridSize; row += stride) {
+    for (let column = 0; column < terrain.gridSize; column += stride) {
+      const index = row * terrain.gridSize + column;
+      if (terrain.classes[index] !== TREE) continue;
+      const jitter = ((row * 17 + column * 31) % 9 - 4) / 12;
+      points.push({
+        x: ((column + 0.5 + jitter) / terrain.gridSize - 0.5) * WORLD_WIDTH,
+        y: (terrain.heights[index] ?? terrain.baseHeight) * verticalScale + 0.03,
+        z: ((row + 0.5 - jitter) / terrain.gridSize - 0.5) * WORLD_DEPTH,
+        scale: 0.84 + ((row * 13 + column * 7) % 5) * 0.08,
+      });
+      if (points.length >= MAX_TREE_INSTANCES) return points;
+    }
+  }
+  return points;
+}
+
+function TreeInstances({ terrain, maxHeight, exaggeration, visible }: { terrain: ReturnType<typeof prepareSemanticTerrain>; maxHeight: number; exaggeration: number; visible: boolean }) {
+  const points = useMemo(() => getTreePoints(terrain, maxHeight, exaggeration), [exaggeration, maxHeight, terrain]);
+  const trunkRef = useRef<THREE.InstancedMesh>(null);
+  const canopyRef = useRef<THREE.InstancedMesh>(null);
+  useLayoutEffect(() => {
+    const trunk = trunkRef.current;
+    const canopy = canopyRef.current;
+    if (!trunk || !canopy) return;
+    const matrix = new THREE.Matrix4();
+    for (let index = 0; index < points.length; index += 1) {
+      const point = points[index];
+      matrix.makeScale(point.scale, point.scale, point.scale);
+      matrix.setPosition(point.x, point.y + 0.16 * point.scale, point.z);
+      trunk.setMatrixAt(index, matrix);
+      matrix.makeScale(point.scale, point.scale, point.scale);
+      matrix.setPosition(point.x, point.y + 0.48 * point.scale, point.z);
+      canopy.setMatrixAt(index, matrix);
+    }
+    trunk.instanceMatrix.needsUpdate = true;
+    canopy.instanceMatrix.needsUpdate = true;
+  }, [points]);
+  if (!visible || !points.length) return null;
+  return <group userData={{ instanceCount: points.length }}>
+    <instancedMesh ref={trunkRef} args={[undefined, undefined, points.length]} castShadow>
+      <cylinderGeometry args={[0.045, 0.06, 0.32, 6]} />
+      <meshStandardMaterial color="#705844" roughness={0.95} />
+    </instancedMesh>
+    <instancedMesh ref={canopyRef} args={[undefined, undefined, points.length]} castShadow>
+      <coneGeometry args={[0.28, 0.56, 7]} />
+      <meshStandardMaterial color="#477653" roughness={0.9} flatShading />
+    </instancedMesh>
+  </group>;
+}
 
 function createSurfaceGeometry(heightData: number[], gridSize: number, maxHeight: number, exaggeration: number) {
   const surface = new THREE.PlaneGeometry(WORLD_WIDTH, WORLD_DEPTH, gridSize - 1, gridSize - 1);
@@ -172,6 +246,7 @@ function StylizedCity({ heightData, gridSize, maxHeight, exaggeration, buildingR
 
   return <group userData={{ sceneQuality: quality }}>
     {semanticData?.length ? <SemanticTerrain terrain={terrain} maxHeight={maxHeight} exaggeration={exaggeration} layers={layers} wireframe={wireframe} semanticClasses={semanticClasses} /> : <TerrainBase />}
+    <TreeInstances terrain={terrain} maxHeight={maxHeight} exaggeration={exaggeration} visible={layers.trees && Boolean(semanticData?.length)} />
     {layers.buildings && regions.map((sourceRegion, index) => {
       const region = sourceRegion;
       const height = region.height * verticalScale;
@@ -180,18 +255,24 @@ function StylizedCity({ heightData, gridSize, maxHeight, exaggeration, buildingR
       const depth = Math.max(region.depth * WORLD_DEPTH, 0.2);
       const footprintGeometry = createBuildingExtrusionGeometry(region, verticalScale, WORLD_WIDTH, WORLD_DEPTH);
       if (footprintGeometry) {
-        const materialColor = wireframe ? "#9b94bd" : getSemanticClassColor(BUILDING, semanticClasses);
+        const roofRegion = { ...region, roofType: getRoofType(region) };
+        const roofGeometry = createRoofGeometry(roofRegion, verticalScale, WORLD_WIDTH, WORLD_DEPTH);
+        const materialColor = wireframe ? "#9b94bd" : getBuildingMaterialColor(region, index, semanticClasses);
+        const roofColor = wireframe ? "#9b94bd" : new THREE.Color(materialColor).offsetHSL(0, -0.02, -0.08).getHexString().replace(/^/, "#");
         const baseY = (region.groundHeight ?? 0) * verticalScale;
         return <group key={`${region.centerX}-${region.centerZ}-${index}`} position={[0, baseY, 0]}>
           <mesh geometry={footprintGeometry} castShadow receiveShadow>
             <meshStandardMaterial color={materialColor} roughness={0.77} wireframe={wireframe} flatShading />
           </mesh>
+          {roofGeometry && <mesh geometry={roofGeometry} castShadow receiveShadow>
+            <meshStandardMaterial color={roofColor} roughness={0.88} wireframe={wireframe} flatShading />
+          </mesh>}
         </group>;
       }
       return <group key={`${region.centerX}-${region.centerZ}-${index}`} position={[region.centerX * WORLD_WIDTH, 0, region.centerZ * WORLD_DEPTH]}>
         <mesh castShadow receiveShadow position={[0, layout.wallCenterY, 0]}>
           <boxGeometry args={[width, height, depth]} />
-          <meshStandardMaterial color={wireframe ? "#9b94bd" : getSemanticClassColor(BUILDING, semanticClasses)} roughness={0.77} wireframe={wireframe} flatShading />
+          <meshStandardMaterial color={wireframe ? "#9b94bd" : getBuildingMaterialColor(region, index, semanticClasses)} roughness={0.77} wireframe={wireframe} flatShading />
         </mesh>
       </group>;
     })}
