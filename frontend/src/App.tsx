@@ -4,8 +4,8 @@ import { PredictionInspector } from "./components/PredictionInspector";
 import humanIcon from "./components/human.png";
 import worldwideIcon from "./components/worldwide.png";
 import { ReconstructionViewer } from "./scene/ReconstructionViewer";
-import { expandDebrisZones } from "./routePlanner";
-import { DEFAULT_SCENE_LAYERS, type BenchmarkResult, type PredictionResult, type RoutePoint, type RoutePoints, type RouteProfile, type RouteResult, type SceneLayers } from "./types";
+import { createEvacuationBrief, expandDebrisZones, routePointToSceneCell } from "./routePlanner";
+import { DEFAULT_SCENE_LAYERS, type BenchmarkResult, type EvacuationBrief, type PredictionResult, type RoutePoint, type RoutePoints, type RouteProfile, type RouteResult, type SceneLayers } from "./types";
 
 type NavItem = "New reconstruction" | "Examples" | "About";
 type PredictionState = "idle" | "processing" | "success" | "error";
@@ -55,6 +55,7 @@ function App() {
   const [avoidWater, setAvoidWater] = useState(true);
   const [debrisZones, setDebrisZones] = useState<RoutePoint[]>([]);
   const [routeProfile, setRouteProfile] = useState<RouteProfile>("fastest");
+  const [demoSummary, setDemoSummary] = useState<{ baselineDistance: number; reroutedDistance: number; floodCell: RoutePoint } | null>(null);
   const routeRequestId = useRef(0);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -111,6 +112,7 @@ function App() {
       setAvoidWater(true);
       setDebrisZones([]);
       setRouteProfile("fastest");
+      setDemoSummary(null);
       if (exampleId === "gamus-urban-demo" && nextPrediction.semanticData?.length && nextPrediction.semanticGridSize) {
         const points = { start: { row: Math.round(nextPrediction.semanticGridSize * 0.47), column: 2 }, destination: { row: Math.round(nextPrediction.semanticGridSize * 0.47), column: nextPrediction.semanticGridSize - 4 } };
         setRoutePoints(points);
@@ -183,11 +185,35 @@ function App() {
     }
   }
 
-  function loadDemoRoute() {
+  async function loadDemoRoute() {
     if (!prediction?.semanticGridSize) return;
-    const points = { start: { row: Math.round(prediction.semanticGridSize * 0.47), column: 2 }, destination: { row: Math.round(prediction.semanticGridSize * 0.47), column: prediction.semanticGridSize - 4 } };
-    setRoutePoints(points);
-    void requestRoute(points, prediction, debrisZones, avoidWater);
+    const requestId = routeRequestId.current + 1;
+    routeRequestId.current = requestId;
+    setRoute(null);
+    setDemoSummary(null);
+    setRouteState("loading");
+    setRouteError(null);
+    try {
+      const response = await fetch("http://localhost:8000/api/route/demo");
+      const body = await response.json() as { baseline?: RouteResult; rerouted?: RouteResult; debrisZone?: RoutePoint; floodCell?: RoutePoint } | { detail?: string };
+      if (!response.ok || !("baseline" in body) || !body.baseline || !body.rerouted || !body.debrisZone || !body.floodCell) throw new Error("The deterministic demo could not be loaded.");
+      if (requestId !== routeRequestId.current) return;
+      const scenePoint = routePointToSceneCell(body.debrisZone, body.rerouted.gridSize, prediction.semanticGridSize);
+      const sceneStart = routePointToSceneCell(body.rerouted.start, body.rerouted.gridSize, prediction.semanticGridSize);
+      const sceneDestination = routePointToSceneCell(body.rerouted.destination, body.rerouted.gridSize, prediction.semanticGridSize);
+      setRoute(body.rerouted);
+      setRoutePoints({ start: sceneStart, destination: sceneDestination });
+      setDebrisZones([scenePoint]);
+      setDemoSummary({ baselineDistance: body.baseline.distanceCells, reroutedDistance: body.rerouted.distanceCells, floodCell: body.floodCell });
+      setRouteState("ready");
+      setRouteNotice(`Demo replay: baseline ${body.baseline.distanceCells} cells → flood/debris reroute ${body.rerouted.distanceCells} cells.`);
+    } catch (error) {
+      if (requestId !== routeRequestId.current) return;
+      setRoute(null);
+      setDemoSummary(null);
+      setRouteState("error");
+      setRouteError(error instanceof Error ? error.message : "The deterministic demo could not be loaded.");
+    }
   }
 
   function toggleWaterAvoidance() {
@@ -210,6 +236,19 @@ function App() {
   function changeRouteProfile(profile: RouteProfile) {
     setRouteProfile(profile);
     if (routePoints.start && routePoints.destination) void requestRoute(routePoints, prediction, debrisZones, avoidWater, `${profile[0].toUpperCase()}${profile.slice(1)} route selected.`, profile);
+  }
+
+  function exportRouteBrief() {
+    if (!route || !prediction) return;
+    const brief: EvacuationBrief = createEvacuationBrief(route, prediction);
+    const url = URL.createObjectURL(new Blob([JSON.stringify(brief, null, 2)], { type: "application/json" }));
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `evacuation-brief-${route.profile}.json`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    window.setTimeout(() => URL.revokeObjectURL(url), 1000);
   }
 
   const statusLabel = backendStatus === "online" ? "API connected" : backendStatus === "offline" ? "API offline" : "Checking API";
@@ -314,6 +353,8 @@ function App() {
                       onRemoveDebris={removeDebrisZone}
                       routeProfile={routeProfile}
                       onRouteProfileChange={changeRouteProfile}
+                      onExportBrief={exportRouteBrief}
+                      demoSummary={demoSummary}
                       onPlanRoute={() => void requestRoute()}
                       onLoadDemoRoute={loadDemoRoute}
                       onClearRoute={() => { setRoute(null); setRoutePoints({}); setRouteState("idle"); setRouteError(null); }}

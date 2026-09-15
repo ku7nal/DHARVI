@@ -26,6 +26,8 @@ type PredictionInspectorProps = {
   onRemoveDebris: (index: number) => void;
   routeProfile: RouteProfile;
   onRouteProfileChange: (profile: RouteProfile) => void;
+  onExportBrief: () => void;
+  demoSummary: { baselineDistance: number; reroutedDistance: number; floodCell: RoutePoint } | null;
 };
 
 function InspectorSection({ title, children, defaultOpen = true }: { title: string; children: ReactNode; defaultOpen?: boolean }) {
@@ -51,7 +53,7 @@ function LayerToggle({ label, description, active, onClick }: { label: string; d
   );
 }
 
-function PredictionInspector({ isOpen, prediction, layers, onToggleLayer, onClose, route, routePoints, routeSelectionMode, routeState, routeError, routeNotice, avoidWater, debrisZones, routeProfile, onRouteModeChange, onRouteProfileChange, onPlanRoute, onLoadDemoRoute, onClearRoute, onToggleWater, onClearDebris, onRemoveDebris }: PredictionInspectorProps) {
+function PredictionInspector({ isOpen, prediction, layers, onToggleLayer, onClose, route, routePoints, routeSelectionMode, routeState, routeError, routeNotice, avoidWater, debrisZones, routeProfile, demoSummary, onRouteModeChange, onRouteProfileChange, onExportBrief, onPlanRoute, onLoadDemoRoute, onClearRoute, onToggleWater, onClearDebris, onRemoveDebris }: PredictionInspectorProps) {
   const semanticPayloadAligned = Boolean(
     prediction.semanticGridSize &&
     prediction.semanticGridSize === prediction.gridSize &&
@@ -117,6 +119,7 @@ function PredictionInspector({ isOpen, prediction, layers, onToggleLayer, onClos
       <InspectorSection title="Evacuation route">
         {semanticAvailable ? <>
           <div className="route-intro">Plan a road-only emergency route from this semantic reconstruction.</div>
+          <div className="inspector-note">Decision support brief: confirm live road conditions, responder access, and evacuation authority before dispatch.</div>
           <div className="route-points">
             <div><span className="route-marker-dot origin" />Origin <strong>{routePoints.start ? `${routePoints.start.row}, ${routePoints.start.column}` : "Not set"}</strong></div>
             <div><span className="route-marker-dot destination" />Destination <strong>{routePoints.destination ? `${routePoints.destination.row}, ${routePoints.destination.column}` : "Not set"}</strong></div>
@@ -140,7 +143,8 @@ function PredictionInspector({ isOpen, prediction, layers, onToggleLayer, onClos
           {routeSelectionMode !== "idle" && <div className="route-hint">Click the scene to {routeSelectionMode === "start" ? "set the origin on a road" : routeSelectionMode === "destination" ? "set the destination on a road" : "mark a temporary debris zone"}.</div>}
           {routeState === "error" && <div className="route-error">{routeError}</div>}
           {routeNotice && <div className="route-hint">{routeNotice}</div>}
-          {route && <div className="route-result"><strong>{route.profile[0].toUpperCase() + route.profile.slice(1)} route selected</strong><span>{route.distanceCells} road cells · {route.travelTimeMinutes} min estimated · risk {route.riskScore}/100 · slope {route.accessibilityScore}/100</span><span>{route.hazards.waterAvoidance ? `${route.hazards.waterCells} detected water cells excluded · ${route.hazards.waterBlockedRoadCells} road cells near water blocked` : "Water exclusion disabled"} · {route.hazards.blockedRoadCells} road cells blocked by debris</span><span>{route.avoidedHazards.length ? `Avoided: ${route.avoidedHazards.join(", ")}` : "No active hazard exposure detected"}</span><div className="route-alternatives">{route.alternatives.map((alternative, index) => <div key={`alternative-${index}`} className={index === route.selectedIndex ? "selected" : ""}><span>Option {index + 1} · {alternative.distanceCells} cells · {alternative.travelTimeMinutes} min · risk {alternative.riskScore}</span><small>{alternative.avoidedHazards.length ? alternative.avoidedHazards.join(", ") : "baseline"}</small></div>)}</div><button className="text-button" onClick={onClearRoute}>Clear route</button></div>}
+          {demoSummary && <div className="route-demo-summary"><strong>Reproducible demo replay</strong><span>Baseline {demoSummary.baselineDistance} cells → rerouted {demoSummary.reroutedDistance} cells</span><small>Flood cell {demoSummary.floodCell.row}, {demoSummary.floodCell.column} + debris zone</small></div>}
+          {route && <div className="route-result"><strong>{route.profile[0].toUpperCase() + route.profile.slice(1)} route selected</strong><span>{route.distanceCells} road cells · {route.travelTimeMinutes} min estimated · risk {route.riskScore}/100 · slope {route.accessibilityScore}/100</span><span>{route.hazards.waterAvoidance ? `${route.hazards.waterCells} detected water cells excluded · ${route.hazards.waterBlockedRoadCells} road cells near water blocked` : "Water exclusion disabled"} · {route.hazards.blockedRoadCells} road cells blocked by debris</span><span>{route.avoidedHazards.length ? `Avoided: ${route.avoidedHazards.join(", ")}` : "No active hazard exposure detected"}</span><div className="route-alternatives">{route.alternatives.map((alternative, index) => <div key={`alternative-${index}`} className={index === route.selectedIndex ? "selected" : ""}><span>Option {index + 1} · {alternative.distanceCells} cells · {alternative.travelTimeMinutes} min · risk {alternative.riskScore}</span><small>{alternative.avoidedHazards.length ? alternative.avoidedHazards.join(", ") : "baseline"}</small></div>)}</div><div className="route-result-actions"><button className="text-button" onClick={onExportBrief}>Export brief JSON</button><button className="text-button" onClick={onClearRoute}>Clear route</button></div></div>}
         </> : <div className="inspector-note">Evacuation routing requires an aligned semantic road mask. Use the GAMUS example to try the deterministic route demo.</div>}
       </InspectorSection>
 

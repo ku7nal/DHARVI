@@ -121,6 +121,23 @@ type RouteAlternative = {
   profileScore: number;
 };
 
+type EvacuationBrief = {
+  briefType: "evacuation-decision-support";
+  generatedAt: string;
+  origin: RoutePoint;
+  destination: RoutePoint;
+  profile: RouteProfile;
+  distanceCells: number;
+  estimatedTravelTimeMinutes: number;
+  riskScore: number;
+  accessibilityScore: number;
+  avoidedHazards: string[];
+  hazards: RouteHazards;
+  gridSize: number;
+  prediction: { semanticSource?: string; boundaryConfidence: number | null; limitations: string[] };
+  route: RoutePoint[];
+};
+
 type RouteHazards = {
   waterCells: number;
   debrisCells: number;
@@ -155,4 +172,4 @@ type BenchmarkResult = {
 };
 
 export { DEFAULT_SCENE_LAYERS };
-export type { BenchmarkResult, BuildingRegion, CalibrationMetadata, GeoSpatialMetadata, PredictionResult, RouteAlternative, RouteHazards, RoutePoint, RoutePoints, RouteProfile, RouteResult, SceneLayers, SemanticClass };
+export type { BenchmarkResult, BuildingRegion, CalibrationMetadata, EvacuationBrief, GeoSpatialMetadata, PredictionResult, RouteAlternative, RouteHazards, RoutePoint, RoutePoints, RouteProfile, RouteResult, SceneLayers, SemanticClass };

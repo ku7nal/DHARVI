@@ -84,6 +84,22 @@ class RouteRequest(BaseModel):
     uncertaintyData: list[float] | None = None
 
 
+def _demo_route_scenario() -> dict[str, object]:
+    grid_size = 32
+    semantic_data = _fixture_semantic_grid(grid_size).ravel().tolist()
+    start = {"row": 14, "column": 1}
+    destination = {"row": 14, "column": 30}
+    debris_zone = {"row": 14, "column": 20}
+    flood_cell = {"row": 14, "column": 8}
+    debris = [{"row": row, "column": column} for row in range(debris_zone["row"] - 1, debris_zone["row"] + 2) for column in range(debris_zone["column"] - 1, debris_zone["column"] + 2)]
+    height_data = [0.0] * (grid_size * grid_size)
+    baseline = plan_ranked_routes(semantic_data, grid_size, start, destination, height_data=height_data, profile="fastest")
+    flooded_semantics = semantic_data.copy()
+    flooded_semantics[flood_cell["row"] * grid_size + flood_cell["column"]] = 4
+    rerouted = plan_ranked_routes(flooded_semantics, grid_size, start, destination, debris, height_data=height_data, profile="fastest")
+    return {"fixture": "gamus-urban-demo", "gridSize": grid_size, "start": start, "destination": destination, "debrisZone": debris_zone, "floodCell": flood_cell, "baseline": baseline, "rerouted": rerouted}
+
+
 @app.get("/api/health")
 def health() -> dict[str, str]:
     return {"status": "ok", "service": "depthwizard-api", "version": app.version}
@@ -103,6 +119,14 @@ def route(request: RouteRequest) -> dict[str, object]:
             request.uncertaintyData,
             request.profile,
         )
+    except ValueError as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error
+
+
+@app.get("/api/route/demo")
+def route_demo() -> dict[str, object]:
+    try:
+        return _demo_route_scenario()
     except ValueError as error:
         raise HTTPException(status_code=422, detail=str(error)) from error
 

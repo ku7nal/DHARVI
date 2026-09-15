@@ -83,6 +83,18 @@ class HealthEndpointTests(unittest.TestCase):
             self.assertEqual(len(body["alternatives"]), 3)
             self.assertIn("travelTimeMinutes", body["alternatives"][0])
 
+    def test_route_demo_reproduces_before_and_after_rerouting(self) -> None:
+        response = TestClient(app).get("/api/route/demo")
+
+        self.assertEqual(response.status_code, 200)
+        body = response.json()
+        self.assertEqual(body["fixture"], "gamus-urban-demo")
+        self.assertGreater(body["rerouted"]["distanceCells"], body["baseline"]["distanceCells"])
+        self.assertEqual(body["rerouted"]["hazards"]["blockedRoadCells"], 9)
+        self.assertGreater(body["rerouted"]["hazards"]["waterCells"], body["baseline"]["hazards"]["waterCells"])
+        self.assertNotEqual(body["baseline"]["path"], body["rerouted"]["path"])
+        self.assertEqual(body, TestClient(app).get("/api/route/demo").json())
+
     def test_1024_tile_starts_cover_both_image_edges_with_overlap(self) -> None:
         service = DepthAnythingModelService(main_module.CHECKPOINT_PATH)
         starts = service._tile_starts(1024)

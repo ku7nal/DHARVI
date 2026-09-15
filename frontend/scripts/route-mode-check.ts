@@ -63,4 +63,14 @@ const disconnected = await fetch("http://127.0.0.1:8000/api/route", {
   body: JSON.stringify({ semanticData: [5, 0, 0, 0, 0, 0, 0, 0, 5], gridSize: 3, start: { row: 0, column: 0 }, destination: { row: 2, column: 2 } }),
 });
 if (disconnected.status !== 422) throw new Error(`Expected disconnected roads to return 422, received ${disconnected.status}`);
+
+const demo = await fetch("http://127.0.0.1:8000/api/route/demo");
+if (!demo.ok) throw new Error(`Expected deterministic demo flow, received ${demo.status}`);
+const demoBody = await demo.json() as { fixture?: string; gridSize?: number; floodCell?: unknown; baseline?: { path?: unknown[]; distanceCells?: number; hazards?: unknown }; rerouted?: { path?: unknown[]; distanceCells?: number; hazards?: { blockedRoadCells?: number; waterCells?: number } } };
+const demoRepeat = await (await fetch("http://127.0.0.1:8000/api/route/demo")).json();
+if (JSON.stringify(demoBody) !== JSON.stringify(demoRepeat) || demoBody.fixture !== "gamus-urban-demo" || !demoBody.gridSize || !demoBody.floodCell || !demoBody.baseline?.path?.length || !demoBody.rerouted?.path?.length || !demoBody.baseline?.hazards || (demoBody.rerouted?.distanceCells ?? 0) <= (demoBody.baseline?.distanceCells ?? 0) || demoBody.rerouted?.hazards?.blockedRoadCells !== 9 || (demoBody.rerouted?.hazards?.waterCells ?? 0) <= 0) throw new Error("Deterministic flood/debris demo did not produce a reproducible reroute.");
+const brief = createEvacuationBrief({ start: { row: 1, column: 1 }, destination: { row: 3, column: 3 }, gridSize: 5, profile: "fastest", distanceCells: 4, travelTimeMinutes: 4.8, riskScore: 2, accessibilityScore: 1, avoidedHazards: ["water"], hazards: { waterCells: 1, waterBlockedRoadCells: 2, debrisCells: 0, blockedRoadCells: 0, waterAvoidance: true }, path: [{ row: 1, column: 1 }, { row: 1, column: 2 }, { row: 2, column: 2 }, { row: 3, column: 3 }], selectedIndex: 0, profileScore: 4, alternatives: [] } as never, { heightReference: "relative", semanticSource: "fixture", boundaryConfidence: null } as never);
+const serializedBrief = JSON.parse(JSON.stringify(brief)) as Record<string, unknown>;
+for (const key of ["briefType", "origin", "destination", "gridSize", "profile", "distanceCells", "estimatedTravelTimeMinutes", "riskScore", "hazards", "prediction", "route"]) if (!(key in serializedBrief)) throw new Error(`Export brief is missing ${key}.`);
 console.log("route mode API fixture passed");
+import { createEvacuationBrief } from "../src/routePlanner.ts";
