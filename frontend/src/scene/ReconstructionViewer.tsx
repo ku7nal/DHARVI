@@ -5,7 +5,7 @@ import * as THREE from "three";
 import type { BuildingRegion, SceneLayers, SemanticClass } from "../types";
 import { createBuildingExtrusionGeometry } from "../buildingGeometry";
 import { getBuildingLayout } from "../sceneGeometry";
-import { getBuildingDetailLevel, validateSceneQuality } from "../sceneQuality";
+import { validateSceneQuality } from "../sceneQuality";
 import { BUILDING, SEMANTIC_LAYER_DEFINITIONS, createSemanticSurfaceGeometry, getSemanticClassColor, getVisibleSemanticClassIds, prepareSemanticTerrain } from "../semanticTerrain";
 
 type ReconstructionViewerProps = {
@@ -106,18 +106,6 @@ function TerrainBase() {
   return <mesh rotation={[-Math.PI / 2, 0, 0]} receiveShadow position={[0, 0, 0]}><planeGeometry args={[WORLD_WIDTH, WORLD_DEPTH]} /><meshStandardMaterial color="#b6c99e" roughness={1} /></mesh>;
 }
 
-function distantBuildingRegion(region: BuildingRegion): BuildingRegion {
-  const halfWidth = region.width / 2;
-  const halfDepth = region.depth / 2;
-  return {
-    ...region,
-    roofType: "flat",
-    roofRise: 0,
-    footprint: [[region.centerX - halfWidth, region.centerZ - halfDepth], [region.centerX + halfWidth, region.centerZ - halfDepth], [region.centerX + halfWidth, region.centerZ + halfDepth], [region.centerX - halfWidth, region.centerZ + halfDepth]],
-    holes: [],
-  };
-}
-
 function SemanticTerrain({ terrain, maxHeight, exaggeration, layers, wireframe, semanticClasses }: { terrain: ReturnType<typeof prepareSemanticTerrain>; maxHeight: number; exaggeration: number; layers: SceneLayers; wireframe: boolean; semanticClasses?: SemanticClass[] }) {
   const visibleClassIds = useMemo(() => getVisibleSemanticClassIds({ buildings: layers.buildings, ground: layers.ground, roads: layers.roads, water: layers.water, vegetation: layers.vegetation, trees: layers.trees }), [layers.buildings, layers.ground, layers.roads, layers.trees, layers.vegetation, layers.water]);
   const geometries = useMemo(() => visibleClassIds.map((classId) => ({ classId, geometry: createSemanticSurfaceGeometry(terrain.heights, terrain.classes, terrain.gridSize, classId, maxHeight, exaggeration, terrain.baseHeight) })), [exaggeration, maxHeight, terrain.baseHeight, terrain.classes, terrain.gridSize, terrain.heights, visibleClassIds]);
@@ -185,13 +173,12 @@ function StylizedCity({ heightData, gridSize, maxHeight, exaggeration, buildingR
   return <group userData={{ sceneQuality: quality }}>
     {semanticData?.length ? <SemanticTerrain terrain={terrain} maxHeight={maxHeight} exaggeration={exaggeration} layers={layers} wireframe={wireframe} semanticClasses={semanticClasses} /> : <TerrainBase />}
     {layers.buildings && regions.map((sourceRegion, index) => {
-      const detailLevel = getBuildingDetailLevel(sourceRegion);
-      const region = detailLevel === "distant" ? distantBuildingRegion(sourceRegion) : sourceRegion;
+      const region = sourceRegion;
       const height = region.height * verticalScale;
       const layout = getBuildingLayout(height);
       const width = Math.max(region.width * WORLD_WIDTH, 0.2);
       const depth = Math.max(region.depth * WORLD_DEPTH, 0.2);
-      const footprintGeometry = detailLevel === "lod2" ? createBuildingExtrusionGeometry(region, verticalScale, WORLD_WIDTH, WORLD_DEPTH) : null;
+      const footprintGeometry = createBuildingExtrusionGeometry(region, verticalScale, WORLD_WIDTH, WORLD_DEPTH);
       if (footprintGeometry) {
         const materialColor = wireframe ? "#9b94bd" : getSemanticClassColor(BUILDING, semanticClasses);
         const baseY = (region.groundHeight ?? 0) * verticalScale;
