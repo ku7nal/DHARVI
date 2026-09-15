@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import type { BuildingRegion } from "../src/types.ts";
-import { createBuildingExtrusionGeometry, createRoofGeometry } from "../src/buildingGeometry.ts";
+import { createBuildingExtrusionGeometry, createRoofGeometry, getSafeBuildingHeight, isValidFootprint } from "../src/buildingGeometry.ts";
 
 const region: BuildingRegion = {
   centerX: 0,
@@ -57,5 +57,21 @@ inferredRiseRoof.dispose();
 
 assert.equal(createRoofGeometry({ ...region, roofType: "flat" }, 1, 15, 11), null);
 assert.equal(createRoofGeometry({ ...region, footprint: [[-0.2, -0.15], [0.05, -0.15], [0.05, -0.03], [0.2, -0.03], [0.2, 0.15], [-0.2, 0.15]] }, 1, 15, 11), null);
+
+const malformedRegion: BuildingRegion = {
+  ...region,
+  centerX: Number.NaN,
+  centerZ: Number.NaN,
+  height: Number.NaN,
+  wallHeight: Number.NaN,
+  groundHeight: Number.NaN,
+  width: Number.NaN,
+  depth: Number.NaN,
+  footprint: [[-0.2, -0.15], [Number.NaN, -0.15], [0.2, 0.15]],
+};
+assert.equal(isValidFootprint(malformedRegion), false);
+assert.equal(createBuildingExtrusionGeometry(malformedRegion, 1, 15, 11), null);
+assert.equal(createRoofGeometry(malformedRegion, 1, 15, 11), null);
+assert.equal(getSafeBuildingHeight(malformedRegion), 0.05);
 
 console.log("building extrusion geometry fixture passed");

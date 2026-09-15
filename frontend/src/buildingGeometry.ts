@@ -1,8 +1,23 @@
 import * as THREE from "three";
 import type { BuildingRegion } from "./types";
 
+function isValidPolygon(polygon: Array<[number, number]> | undefined): polygon is Array<[number, number]> {
+  return Boolean(polygon && polygon.length >= 3 && polygon.every(([x, z]) => Number.isFinite(x) && Number.isFinite(z)));
+}
+
+type ValidFootprintRegion = BuildingRegion & { footprint: Array<[number, number]> };
+
+function isValidFootprint(region: BuildingRegion): region is ValidFootprintRegion {
+  return isValidPolygon(region.footprint) && (region.holes ?? []).every((hole) => isValidPolygon(hole));
+}
+
+function getSafeBuildingHeight(region: BuildingRegion): number {
+  const height = Number.isFinite(region.wallHeight) ? region.wallHeight! : region.height;
+  return Number.isFinite(height) ? Math.max(height, 0) : 0.05;
+}
+
 function createBuildingExtrusionGeometry(region: BuildingRegion, verticalScale: number, worldWidth: number, worldDepth: number): THREE.ExtrudeGeometry | null {
-  if (!region.footprint || region.footprint.length < 3) return null;
+  if (!isValidFootprint(region)) return null;
   const shape = new THREE.Shape(region.footprint.map(([x, z]) => new THREE.Vector2(x * worldWidth, -z * worldDepth)));
   for (const hole of region.holes ?? []) {
     if (hole.length >= 3) {
@@ -12,14 +27,14 @@ function createBuildingExtrusionGeometry(region: BuildingRegion, verticalScale: 
   const geometry = new THREE.ExtrudeGeometry(shape, {
     bevelEnabled: false,
     curveSegments: 1,
-    depth: Math.max((region.wallHeight ?? region.height) * verticalScale, 0.05),
+    depth: Math.max(getSafeBuildingHeight(region) * verticalScale, 0.05),
   });
   geometry.rotateX(-Math.PI / 2);
   return geometry;
 }
 
 function createFootprintShape(region: BuildingRegion, worldWidth: number, worldDepth: number): THREE.Shape | null {
-  if (!region.footprint || region.footprint.length < 3) return null;
+  if (!isValidFootprint(region)) return null;
   const shape = new THREE.Shape(region.footprint.map(([x, z]) => new THREE.Vector2(x * worldWidth, -z * worldDepth)));
   for (const hole of region.holes ?? []) {
     if (hole.length >= 3) shape.holes.push(new THREE.Path(hole.map(([x, z]) => new THREE.Vector2(x * worldWidth, -z * worldDepth))));
@@ -42,7 +57,7 @@ function isConvexFootprint(footprint: Array<[number, number]>): boolean {
 }
 
 function createRoofGeometry(region: BuildingRegion, verticalScale: number, worldWidth: number, worldDepth: number): THREE.BufferGeometry | null {
-  if (!region.footprint || region.footprint.length < 3 || region.roofType === "flat" || !isConvexFootprint(region.footprint)) return null;
+  if (!isValidFootprint(region) || region.roofType === "flat" || !isConvexFootprint(region.footprint)) return null;
   const outline = region.footprint.map(([x, z]) => new THREE.Vector3(x * worldWidth, 0, -z * worldDepth));
   const box = new THREE.Box3().setFromPoints(outline);
   const centerX = (box.min.x + box.max.x) / 2;
@@ -52,7 +67,7 @@ function createRoofGeometry(region: BuildingRegion, verticalScale: number, world
   const defaultRise = Math.max(Math.min(footprintWidth, footprintDepth) * 0.34, 0.18);
   const minimumRise = region.roofType === "stepped" ? 0.12 : 0.18;
   const rise = Math.max(region.roofRise ?? defaultRise, minimumRise) * verticalScale;
-  const wallHeight = Math.max(region.wallHeight ?? region.height, 0) * verticalScale;
+  const wallHeight = getSafeBuildingHeight(region) * verticalScale;
 
   if (region.roofType === "gabled") {
     const minX = box.min.x;
@@ -116,4 +131,4 @@ function createRoofGeometry(region: BuildingRegion, verticalScale: number, world
   return geometry;
 }
 
-export { createBuildingExtrusionGeometry, createRoofGeometry };
+export { createBuildingExtrusionGeometry, createRoofGeometry, getSafeBuildingHeight, isValidFootprint };

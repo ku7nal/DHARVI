@@ -3,7 +3,7 @@ import { ContactShadows, FlyControls, OrbitControls, OrthographicCamera, Perform
 import { Suspense, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import * as THREE from "three";
 import type { BuildingRegion, SceneLayers, SemanticClass } from "../types";
-import { createBuildingExtrusionGeometry, createRoofGeometry } from "../buildingGeometry";
+import { createBuildingExtrusionGeometry, createRoofGeometry, getSafeBuildingHeight } from "../buildingGeometry";
 import { getBuildingLayout } from "../sceneGeometry";
 import { MAX_TREE_INSTANCES, getBuildingDetailLevel, validateSceneQuality } from "../sceneQuality";
 import { BUILDING, SEMANTIC_LAYER_DEFINITIONS, TREE, createSemanticSurfaceGeometry, getSemanticClassColor, getVisibleSemanticClassIds, prepareSemanticTerrain } from "../semanticTerrain";
@@ -35,7 +35,10 @@ function getBuildingMaterialColor(region: BuildingRegion, index: number, semanti
 }
 
 function getRoofType(region: BuildingRegion): BuildingRegion["roofType"] {
-  if (region.roofType !== "flat") return region.roofType;
+  const supportedRoofTypes: BuildingRegion["roofType"][] = ["flat", "stepped", "gabled", "hipped", "dome"];
+  if (supportedRoofTypes.includes(region.roofType)) {
+    if (region.roofType !== "flat") return region.roofType;
+  }
   const area = region.width * region.depth;
   return getBuildingDetailLevel(region) === "lod2" && area > 0.045 ? "stepped" : "flat";
 }
@@ -256,17 +259,17 @@ function StylizedCity({ heightData, gridSize, maxHeight, exaggeration, buildingR
     <TreeInstances terrain={terrain} maxHeight={maxHeight} exaggeration={exaggeration} visible={layers.trees && Boolean(semanticData?.length)} />
     {layers.buildings && regions.map((sourceRegion, index) => {
       const region = sourceRegion;
-      const height = region.height * verticalScale;
+      const height = getSafeBuildingHeight(region) * verticalScale;
       const layout = getBuildingLayout(height);
-      const width = Math.max(region.width * WORLD_WIDTH, 0.2);
-      const depth = Math.max(region.depth * WORLD_DEPTH, 0.2);
+      const width = Math.max(Number.isFinite(region.width) ? region.width * WORLD_WIDTH : 0, 0.2);
+      const depth = Math.max(Number.isFinite(region.depth) ? region.depth * WORLD_DEPTH : 0, 0.2);
       const footprintGeometry = createBuildingExtrusionGeometry(region, verticalScale, WORLD_WIDTH, WORLD_DEPTH);
       if (footprintGeometry) {
         const roofRegion = { ...region, roofType: getLowPolyRoofType(region, index) };
         const roofGeometry = createRoofGeometry(roofRegion, verticalScale, WORLD_WIDTH, WORLD_DEPTH);
         const materialColor = wireframe ? "#9b94bd" : getBuildingMaterialColor(region, index, semanticClasses);
         const roofColor = wireframe ? "#9b94bd" : new THREE.Color(materialColor).offsetHSL(0, -0.04, -0.14).getHexString().replace(/^/, "#");
-        const baseY = (region.groundHeight ?? 0) * verticalScale;
+        const baseY = (Number.isFinite(region.groundHeight) ? region.groundHeight! : 0) * verticalScale;
         return <group key={`${region.centerX}-${region.centerZ}-${index}`} position={[0, baseY, 0]}>
           <mesh geometry={footprintGeometry} castShadow receiveShadow>
             <meshStandardMaterial color={materialColor} roughness={0.77} wireframe={wireframe} flatShading />
@@ -276,7 +279,10 @@ function StylizedCity({ heightData, gridSize, maxHeight, exaggeration, buildingR
           </mesh>}
         </group>;
       }
-      return <group key={`${region.centerX}-${region.centerZ}-${index}`} position={[region.centerX * WORLD_WIDTH, 0, region.centerZ * WORLD_DEPTH]}>
+      const centerX = Number.isFinite(region.centerX) ? region.centerX : 0;
+      const centerZ = Number.isFinite(region.centerZ) ? region.centerZ : 0;
+      const baseY = (Number.isFinite(region.groundHeight) ? region.groundHeight! : 0) * verticalScale;
+      return <group key={`${centerX}-${centerZ}-${index}`} position={[centerX * WORLD_WIDTH, baseY, centerZ * WORLD_DEPTH]}>
         <mesh castShadow receiveShadow position={[0, layout.wallCenterY, 0]}>
           <boxGeometry args={[width, height, depth]} />
           <meshStandardMaterial color={wireframe ? "#9b94bd" : getBuildingMaterialColor(region, index, semanticClasses)} roughness={0.77} wireframe={wireframe} flatShading />
