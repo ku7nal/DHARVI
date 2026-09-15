@@ -47,8 +47,39 @@ function createRoofGeometry(region: BuildingRegion, verticalScale: number, world
   const box = new THREE.Box3().setFromPoints(outline);
   const centerX = (box.min.x + box.max.x) / 2;
   const centerZ = (box.min.z + box.max.z) / 2;
-  const rise = Math.max(region.roofRise ?? 0, region.roofType === "stepped" ? 0.12 : 0.04) * verticalScale;
+  const footprintWidth = box.max.x - box.min.x;
+  const footprintDepth = box.max.z - box.min.z;
+  const defaultRise = Math.max(Math.min(footprintWidth, footprintDepth) * 0.34, 0.18);
+  const minimumRise = region.roofType === "stepped" ? 0.12 : 0.18;
+  const rise = Math.max(region.roofRise ?? defaultRise, minimumRise) * verticalScale;
   const wallHeight = Math.max(region.wallHeight ?? region.height, 0) * verticalScale;
+
+  if (region.roofType === "gabled") {
+    const minX = box.min.x;
+    const maxX = box.max.x;
+    const minZ = box.min.z;
+    const maxZ = box.max.z;
+    const ridgeAlongX = maxX - minX >= maxZ - minZ;
+    const vertices = ridgeAlongX
+      ? [
+        minX, wallHeight, minZ, maxX, wallHeight, minZ,
+        maxX, wallHeight, maxZ, minX, wallHeight, maxZ,
+        minX, wallHeight + rise, centerZ, maxX, wallHeight + rise, centerZ,
+      ]
+      : [
+        minX, wallHeight, minZ, maxX, wallHeight, minZ,
+        maxX, wallHeight, maxZ, minX, wallHeight, maxZ,
+        centerX, wallHeight + rise, minZ, centerX, wallHeight + rise, maxZ,
+      ];
+    const indices = ridgeAlongX
+      ? [0, 1, 5, 0, 5, 4, 3, 2, 5, 3, 5, 4, 0, 4, 3, 1, 2, 5]
+      : [0, 1, 4, 1, 2, 5, 3, 2, 5, 3, 5, 4, 0, 4, 3, 0, 1, 2];
+    const geometry = new THREE.BufferGeometry();
+    geometry.setAttribute("position", new THREE.Float32BufferAttribute(vertices, 3));
+    geometry.setIndex(indices);
+    geometry.computeVertexNormals();
+    return geometry;
+  }
 
   const vertices: number[] = [];
   for (const point of outline) {

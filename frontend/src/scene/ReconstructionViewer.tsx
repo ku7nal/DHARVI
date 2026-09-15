@@ -40,6 +40,13 @@ function getRoofType(region: BuildingRegion): BuildingRegion["roofType"] {
   return getBuildingDetailLevel(region) === "lod2" && area > 0.045 ? "stepped" : "flat";
 }
 
+function getLowPolyRoofType(region: BuildingRegion, index: number): BuildingRegion["roofType"] {
+  const roofType = getRoofType(region);
+  if (roofType !== "flat") return roofType;
+  const seed = Math.abs(Math.round((region.centerX * 97 + region.centerZ * 53) * 1000)) + index;
+  return ["gabled", "hipped", "stepped"][seed % 3] as BuildingRegion["roofType"];
+}
+
 type TreePoint = { x: number; y: number; z: number; scale: number };
 
 function getTreePoints(terrain: ReturnType<typeof prepareSemanticTerrain>, maxHeight: number, exaggeration: number): TreePoint[] {
@@ -255,10 +262,10 @@ function StylizedCity({ heightData, gridSize, maxHeight, exaggeration, buildingR
       const depth = Math.max(region.depth * WORLD_DEPTH, 0.2);
       const footprintGeometry = createBuildingExtrusionGeometry(region, verticalScale, WORLD_WIDTH, WORLD_DEPTH);
       if (footprintGeometry) {
-        const roofRegion = { ...region, roofType: getRoofType(region) };
+        const roofRegion = { ...region, roofType: getLowPolyRoofType(region, index) };
         const roofGeometry = createRoofGeometry(roofRegion, verticalScale, WORLD_WIDTH, WORLD_DEPTH);
         const materialColor = wireframe ? "#9b94bd" : getBuildingMaterialColor(region, index, semanticClasses);
-        const roofColor = wireframe ? "#9b94bd" : new THREE.Color(materialColor).offsetHSL(0, -0.02, -0.08).getHexString().replace(/^/, "#");
+        const roofColor = wireframe ? "#9b94bd" : new THREE.Color(materialColor).offsetHSL(0, -0.04, -0.14).getHexString().replace(/^/, "#");
         const baseY = (region.groundHeight ?? 0) * verticalScale;
         return <group key={`${region.centerX}-${region.centerZ}-${index}`} position={[0, baseY, 0]}>
           <mesh geometry={footprintGeometry} castShadow receiveShadow>
