@@ -13,9 +13,15 @@ playwright-cli run-code "async page => {
   await page.getByText('CNN boundary refinement active', { exact: false }).waitFor({ state: 'visible', timeout: 30000 });
   const presentationToggle = page.getByRole('button', { name: 'Toggle presentation view' });
   const presentationMode = await presentationToggle.getAttribute('aria-pressed');
+  const isometricToggle = page.getByRole('button', { name: 'Isometric view' });
+  const isometricActive = await isometricToggle.getAttribute('aria-pressed');
   const topViewToggle = page.getByRole('button', { name: 'Top view' });
   await topViewToggle.click();
   const topViewActive = await topViewToggle.getAttribute('aria-pressed');
+  await page.waitForTimeout(750);
+  const flyViewToggle = page.getByRole('button', { name: 'Fly view' });
+  await flyViewToggle.click();
+  const flyViewActive = await flyViewToggle.getAttribute('aria-pressed');
   await page.waitForTimeout(750);
   await page.screenshot({ path: '../.scratch/render-review-zaalima-ticket04.png', scale: 'device', type: 'png' });
   const treeToggle = page.getByRole('button', { name: /Trees Bounded tree geometry/ });
@@ -23,9 +29,9 @@ playwright-cli run-code "async page => {
   await treeToggle.click();
   const after = await treeToggle.getAttribute('aria-pressed');
   const buildingNote = await page.getByText('Buildings: GAMUS semantic mask', { exact: false }).count();
-  if (presentationMode !== 'true' || topViewActive !== 'true' || before !== 'true' || after !== 'false' || !buildingNote || errors.length) {
-    throw new Error(JSON.stringify({ presentationMode, topViewActive, before, after, buildingNote, errors }));
+  if (presentationMode !== 'true' || isometricActive !== 'true' || topViewActive !== 'true' || flyViewActive !== 'true' || before !== 'true' || after !== 'false' || !buildingNote || errors.length) {
+    throw new Error(JSON.stringify({ presentationMode, isometricActive, topViewActive, flyViewActive, before, after, buildingNote, errors }));
   }
-  return JSON.stringify({ upload: true, inference: true, presentationMode: true, topView: true, layerToggle: true, geometryReport: buildingNote > 0, consoleErrors: errors.length });
+  return JSON.stringify({ upload: true, inference: true, presentationMode: true, isometricView: true, topView: true, flyView: true, layerToggle: true, geometryReport: buildingNote > 0, consoleErrors: errors.length });
 }"
 playwright-cli console error

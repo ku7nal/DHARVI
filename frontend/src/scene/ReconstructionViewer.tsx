@@ -358,13 +358,15 @@ function SceneContents({ heightData, gridSize, maxHeight, exaggeration, cameraMo
   );
 }
 
-function SceneControlIcon({ name }: { name: "search" | "plus" | "minus" | "focus" | "top" | "image" }) {
+function SceneControlIcon({ name }: { name: "search" | "plus" | "minus" | "focus" | "isometric" | "top" | "fly" | "image" }) {
   const paths = {
     search: <><circle cx="10.5" cy="10.5" r="6.5" /><path d="m15.5 15.5 4.25 4.25" /></>,
     plus: <><path d="M12 5v14M5 12h14" /></>,
     minus: <path d="M5 12h14" />,
     focus: <><path d="M8 3H5a2 2 0 0 0-2 2v3M16 3h3a2 2 0 0 1 2 2v3M21 16v3a2 2 0 0 1-2 2h-3M8 21H5a2 2 0 0 1-2-2v-3" /><rect x="8" y="8" width="8" height="8" rx="1" /></>,
+    isometric: <><path d="m12 3 8 4-8 4-8-4 8-4Z" /><path d="M12 11v10M4 7v10l8 4 8-4V7" /></>,
     top: <><path d="m12 3 8 4-8 4-8-4 8-4Z" /><path d="m4 12 8 4 8-4M4 17l8 4 8-4" /></>,
+    fly: <><path d="M4 12h16M12 4v16" /><path d="m7 7 5-3 5 3M7 17l5 3 5-3" /></>,
     image: <><rect x="3" y="4" width="18" height="16" rx="2" /><circle cx="8" cy="9" r="1.4" /><path d="m4 17 4.5-4.5 3 3 2.25-2.25L20 19" /></>,
   };
 
@@ -394,7 +396,9 @@ function ReconstructionViewer({ heightData, gridSize, maxHeight, layers, inputIm
           <button className="scene-control-button" aria-label="Increase height" title="Increase height" onClick={() => setExaggeration((value) => Math.min(3, Number((value + 0.1).toFixed(1))))}><SceneControlIcon name="plus" /></button>
           <button className="scene-control-button" aria-label="Decrease height" title="Decrease height" onClick={() => setExaggeration((value) => Math.max(1, Number((value - 0.1).toFixed(1))))}><SceneControlIcon name="minus" /></button>
         </div>
+        <button className={`scene-control-button ${cameraMode === "isometric" ? "selected" : ""}`} aria-label="Isometric view" title="Isometric view" aria-pressed={cameraMode === "isometric"} onClick={() => setCameraMode("isometric")}><SceneControlIcon name="isometric" /></button>
         <button className={`scene-control-button ${cameraMode === "top" ? "selected" : ""}`} aria-label="Top view" title="Top view" aria-pressed={cameraMode === "top"} onClick={() => setCameraMode("top")}><SceneControlIcon name="top" /></button>
+        <button className={`scene-control-button ${cameraMode === "fly" ? "selected" : ""}`} aria-label="Fly view" title="Fly view" aria-pressed={cameraMode === "fly"} onClick={() => setCameraMode("fly")}><SceneControlIcon name="fly" /></button>
         <button className={`scene-control-button ${presentationMode ? "selected" : ""}`} aria-label="Toggle presentation view" title={presentationMode ? "Debug view" : "Presentation view"} aria-pressed={presentationMode} onClick={() => setPresentationMode((value) => !value)}><SceneControlIcon name="focus" /></button>
         <button className={`scene-control-button ${showSourceImage ? "selected" : ""}`} aria-label="Toggle source image" title="Toggle source image" aria-pressed={showSourceImage} onClick={() => setShowSourceImage((value) => !value)}><SceneControlIcon name="image" /></button>
       </div>
