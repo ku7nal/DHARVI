@@ -323,6 +323,19 @@ function SceneContents({ heightData, gridSize, maxHeight, exaggeration, cameraMo
   );
 }
 
+function SceneControlIcon({ name }: { name: "search" | "plus" | "minus" | "focus" | "top" | "image" }) {
+  const paths = {
+    search: <><circle cx="10.5" cy="10.5" r="6.5" /><path d="m15.5 15.5 4.25 4.25" /></>,
+    plus: <><path d="M12 5v14M5 12h14" /></>,
+    minus: <path d="M5 12h14" />,
+    focus: <><path d="M8 3H5a2 2 0 0 0-2 2v3M16 3h3a2 2 0 0 1 2 2v3M21 16v3a2 2 0 0 1-2 2h-3M8 21H5a2 2 0 0 1-2-2v-3" /><rect x="8" y="8" width="8" height="8" rx="1" /></>,
+    top: <><path d="m12 3 8 4-8 4-8-4 8-4Z" /><path d="m4 12 8 4 8-4M4 17l8 4 8-4" /></>,
+    image: <><rect x="3" y="4" width="18" height="16" rx="2" /><circle cx="8" cy="9" r="1.4" /><path d="m4 17 4.5-4.5 3 3 2.25-2.25L20 19" /></>,
+  };
+
+  return <svg aria-hidden="true" className="scene-control-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">{paths[name]}</svg>;
+}
+
 function ReconstructionViewer({ heightData, gridSize, maxHeight, layers, inputImageUrl, buildingRegions, semanticData, semanticGridSize, semanticClasses }: ReconstructionViewerProps) {
   const [cameraMode, setCameraMode] = useState<CameraMode | "fly">("isometric");
   const [exaggeration, setExaggeration] = useState(1);
@@ -330,24 +343,25 @@ function ReconstructionViewer({ heightData, gridSize, maxHeight, layers, inputIm
   const [inspection, setInspection] = useState<{ height: number; slope: number } | null>(null);
   const [renderDpr, setRenderDpr] = useState(1.5);
   const [presentationMode, setPresentationMode] = useState(true);
+  const [showSourceImage, setShowSourceImage] = useState(layers.rgb);
+
+  void inspection;
 
   return (
     <div className="reconstruction-viewer">
       <Canvas key={`${cameraMode}-${presentationMode}-${resetKey}`} shadows dpr={[1, renderDpr]} gl={{ antialias: true, toneMapping: THREE.ACESFilmicToneMapping, toneMappingExposure: 1.08 }} camera={{ position: [12, 11, 14], fov: 36 }}>
         <PerformanceMonitor onDecline={() => setRenderDpr(1)} onIncline={() => setRenderDpr(1.5)} />
-        <SceneContents heightData={heightData} gridSize={gridSize} maxHeight={maxHeight} exaggeration={exaggeration} cameraMode={cameraMode} presentationMode={presentationMode} layers={layers} inputImageUrl={inputImageUrl} buildingRegions={buildingRegions} semanticData={semanticData} semanticGridSize={semanticGridSize} semanticClasses={semanticClasses} onInspect={(point) => setInspection(inspectHeight(heightData, gridSize, maxHeight, exaggeration, point))} />
+        <SceneContents heightData={heightData} gridSize={gridSize} maxHeight={maxHeight} exaggeration={exaggeration} cameraMode={cameraMode} presentationMode={presentationMode} layers={{ ...layers, rgb: showSourceImage }} inputImageUrl={inputImageUrl} buildingRegions={buildingRegions} semanticData={semanticData} semanticGridSize={semanticGridSize} semanticClasses={semanticClasses} onInspect={(point) => setInspection(inspectHeight(heightData, gridSize, maxHeight, exaggeration, point))} />
       </Canvas>
-      <div className="scene-toolbar" aria-label="Scene controls">
-        <button className={cameraMode === "isometric" ? "selected" : ""} onClick={() => setCameraMode("isometric")}>Isometric</button>
-        <button className={cameraMode === "top" ? "selected" : ""} onClick={() => setCameraMode("top")}>Top</button>
-        <button className={cameraMode === "fly" ? "selected" : ""} onClick={() => setCameraMode("fly")}>Fly</button>
-        <button className={presentationMode ? "selected" : ""} aria-pressed={presentationMode} onClick={() => setPresentationMode((value) => !value)}>{presentationMode ? "Presentation" : "Debug view"}</button>
-        <button onClick={() => setResetKey((key) => key + 1)}>Reset view</button>
-        <label className="exaggeration-control">
-          <span>Height {exaggeration.toFixed(1)}×</span>
-          <input aria-label="Height exaggeration" type="range" min="1" max="3" step="0.1" value={exaggeration} onChange={(event) => setExaggeration(Number(event.target.value))} />
-        </label>
-        <span className="scene-quality-label">{presentationMode ? `Presentation render · DPR ${renderDpr.toFixed(1)}` : inspection ? `Height ${inspection.height.toFixed(1)} m · slope ${inspection.slope.toFixed(1)}°` : `Move over terrain to inspect height and slope · DPR ${renderDpr.toFixed(1)}`}</span>
+      <div className="scene-controls" aria-label="Scene controls">
+        <button className="scene-control-button" aria-label="Reset view" title="Reset view" onClick={() => setResetKey((key) => key + 1)}><SceneControlIcon name="search" /></button>
+        <div className="scene-control-group" aria-label="Height controls">
+          <button className="scene-control-button" aria-label="Increase height" title="Increase height" onClick={() => setExaggeration((value) => Math.min(3, Number((value + 0.1).toFixed(1))))}><SceneControlIcon name="plus" /></button>
+          <button className="scene-control-button" aria-label="Decrease height" title="Decrease height" onClick={() => setExaggeration((value) => Math.max(1, Number((value - 0.1).toFixed(1))))}><SceneControlIcon name="minus" /></button>
+        </div>
+        <button className={`scene-control-button ${cameraMode === "top" ? "selected" : ""}`} aria-label="Top view" title="Top view" aria-pressed={cameraMode === "top"} onClick={() => setCameraMode("top")}><SceneControlIcon name="top" /></button>
+        <button className={`scene-control-button ${presentationMode ? "selected" : ""}`} aria-label="Toggle presentation view" title={presentationMode ? "Debug view" : "Presentation view"} aria-pressed={presentationMode} onClick={() => setPresentationMode((value) => !value)}><SceneControlIcon name="focus" /></button>
+        <button className={`scene-control-button ${showSourceImage ? "selected" : ""}`} aria-label="Toggle source image" title="Toggle source image" aria-pressed={showSourceImage} onClick={() => setShowSourceImage((value) => !value)}><SceneControlIcon name="image" /></button>
       </div>
     </div>
   );

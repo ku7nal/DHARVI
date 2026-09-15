@@ -98,3 +98,13 @@ IDs, and spatial mismatches. It records HDF5 keys, shapes, dtypes, source groups
 invalid-pixel counts, class distributions, and building-pixel fractions. The Kaggle training command
 runs the same audit automatically before constructing the model; use `--audit-only` to stop after
 the manifest is written.
+
+### Final full-data Kaggle training
+
+The final multiscale Depth Anything V2 Base pipeline is in
+[`backend/training/kaggle_final_train.py`](backend/training/kaggle_final_train.py), with the
+shared model wrapper in [`backend/training/depthwizard_model.py`](backend/training/depthwizard_model.py).
+The copy-paste Kaggle cells are documented in
+[`docs/kaggle-final-training.md`](docs/kaggle-final-training.md). Run the full-data two-epoch
+`--smoke-test` first; it uses every attached train/validation/test sample and only reduces epochs
+and crops-per-sample. Run the same command without `--smoke-test` for the final checkpoint.

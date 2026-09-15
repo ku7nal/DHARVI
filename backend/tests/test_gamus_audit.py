@@ -49,6 +49,18 @@ class GamusAuditTests(unittest.TestCase):
             self.assertAlmostEqual(sample["building_pixel_fraction"], 4 / 19)
             self.assertEqual(json.loads(output.read_text())["total_sample_count"], 3)
 
+    def test_audit_pairs_gamus_cls_suffix(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            self._write_dataset(root)
+            for split in ("train", "val", "test"):
+                original = root / "classes" / split / f"DC_{split}_01_classes.h5"
+                renamed = original.with_name(original.name.replace("_classes", "_CLS"))
+                original.rename(renamed)
+
+            manifest = audit_dataset(root, root / "manifest.json", dataset_id="owner/gamus", dataset_revision="42")
+            self.assertEqual(manifest["total_sample_count"], 3)
+
     def test_audit_rejects_orphan_target_files(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

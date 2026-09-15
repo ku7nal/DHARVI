@@ -4,9 +4,11 @@ import type { PredictionResult, SceneLayers } from "../types";
 const API_BASE = "http://localhost:8000";
 
 type PredictionInspectorProps = {
+  isOpen: boolean;
   prediction: PredictionResult;
   layers: SceneLayers;
   onToggleLayer: (layer: keyof SceneLayers) => void;
+  onClose: () => void;
 };
 
 function InspectorSection({ title, children, defaultOpen = true }: { title: string; children: ReactNode; defaultOpen?: boolean }) {
@@ -32,7 +34,7 @@ function LayerToggle({ label, description, active, onClick }: { label: string; d
   );
 }
 
-function PredictionInspector({ prediction, layers, onToggleLayer }: PredictionInspectorProps) {
+function PredictionInspector({ isOpen, prediction, layers, onToggleLayer, onClose }: PredictionInspectorProps) {
   const semanticPayloadAligned = Boolean(
     prediction.semanticGridSize &&
     prediction.semanticGridSize === prediction.gridSize &&
@@ -46,10 +48,14 @@ function PredictionInspector({ prediction, layers, onToggleLayer }: PredictionIn
       : "Height-only fallback semantics";
 
   return (
-    <aside className="prediction-inspector" aria-label="Prediction analysis inspector">
-      <div className="inspector-title-row">
-        <div><p className="eyebrow">Result details</p><h3>Inspector</h3></div>
-        <span className="fixture-label">{prediction.isFixture ? "Fixture" : "Live model"}</span>
+    <aside className={`prediction-inspector ${isOpen ? "" : "is-closed"}`} aria-label="Prediction analysis inspector" aria-hidden={!isOpen}>
+      <div className="inspector-reference-header">
+        <span className="inspector-reference-title">Inspector</span>
+        <button className="inspector-close" onClick={onClose} aria-label="Collapse layers inspector">
+          <svg className="inspector-collapse-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+            <path d="m15 5-7 7 7 7" />
+          </svg>
+        </button>
       </div>
 
       <InspectorSection title="Preview">

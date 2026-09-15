@@ -13,7 +13,7 @@ class ModelUnavailableError(RuntimeError):
 
 
 class DepthAnythingModelService:
-    model_id = "depth-anything/Depth-Anything-V2-Small-hf"
+    model_id = "depth-anything/Depth-Anything-V2-Base-hf"
     input_size = 518
     tile_overlap = 0.5
 
@@ -23,6 +23,7 @@ class DepthAnythingModelService:
         self._model = None
         self._torch = None
         self._multitask = False
+        self._height_scale = 1.0
 
     def _load_model(self):
         if self._model is not None:
@@ -55,73 +56,86 @@ class DepthAnythingModelService:
             input_size = int(checkpoint.get("image_size", self.input_size)) if isinstance(checkpoint, dict) else self.input_size
             self.model_id = model_id
             self.input_size = input_size
+            checkpoint_format = checkpoint.get("checkpoint_format") if isinstance(checkpoint, dict) else None
+            self._height_scale = float(checkpoint.get("height_scale", 1.0)) if isinstance(checkpoint, dict) else 1.0
 
             base_model = AutoModelForDepthEstimation.from_pretrained(model_id)
 
-            is_multitask = any(key.startswith("base.") for key in checkpoint_state) and "semantic_head.0.weight" in checkpoint_state
+            if checkpoint_format == "depthwizard_dpt_multiscale_v2":
+                from training.depthwizard_model import DepthWizardMultitask
 
-            if is_multitask:
-                channels = int(getattr(base_model.config, "hidden_size", getattr(base_model.config, "reassemble_hidden_size", 384)))
-
-                class DepthAnythingMultitaskModel(nn.Module):
-                    def __init__(self, base):
-                        super().__init__()
-                        self.base = base
-                        self.semantic_head = nn.Sequential(
-                            nn.Conv2d(channels, 256, 3, padding=1),
-                            nn.GELU(),
-                            nn.Conv2d(256, CLASS_COUNT, 1),
-                        )
-                        self.boundary_head = nn.Sequential(
-                            nn.Conv2d(channels, 128, 3, padding=1),
-                            nn.GELU(),
-                            nn.Conv2d(128, 1, 1),
-                        )
-
-                    def forward(self, pixel_values):
-                        import math
-
-                        outputs = self.base(pixel_values=pixel_values, output_hidden_states=True)
-                        height = nn.functional.interpolate(
-                            outputs.predicted_depth.unsqueeze(1),
-                            size=pixel_values.shape[-2:],
-                            mode="bilinear",
-                            align_corners=True,
-                        )
-                        features = outputs.hidden_states[-1]
-                        if features.ndim == 3:
-                            side = int(math.sqrt(features.shape[1]))
-                            if side * side != features.shape[1]:
-                                features = features[:, 1:]
-                                side = int(math.sqrt(features.shape[1]))
-                            features = features[:, :side * side].transpose(1, 2).reshape(features.shape[0], features.shape[2], side, side)
-                        semantic = nn.functional.interpolate(self.semantic_head(features), size=pixel_values.shape[-2:], mode="bilinear", align_corners=False)
-                        boundary = nn.functional.interpolate(self.boundary_head(features), size=pixel_values.shape[-2:], mode="bilinear", align_corners=False)
-                        return {"height": torch.relu(height), "semantic": semantic, "boundary": boundary}
-
-                model = DepthAnythingMultitaskModel(base_model)
+                model = DepthWizardMultitask(base_model)
                 model.load_state_dict(checkpoint_state, strict=True)
                 self._multitask = True
+                self._model = model
+                # The new height head predicts normalized nDSM; convert it back
+                # to the training target units after tile-level inference.
+                self._height_scale = max(self._height_scale, 1.0)
             else:
-                class DepthAnythingHeightModel(nn.Module):
-                    def __init__(self, base):
-                        super().__init__()
-                        self.model = base
-                        for parameter in self.model.backbone.embeddings.parameters():
-                            parameter.requires_grad = False
+                is_multitask = any(key.startswith("base.") for key in checkpoint_state) and "semantic_head.0.weight" in checkpoint_state
 
-                    def forward(self, pixel_values):
-                        outputs = self.model(pixel_values=pixel_values)
-                        predicted_height = nn.functional.interpolate(
-                            outputs.predicted_depth.unsqueeze(1),
-                            size=(input_size, input_size),
-                            mode="bilinear",
-                            align_corners=True,
-                        )
-                        return torch.relu(predicted_height)
+                if is_multitask:
+                    channels = int(getattr(base_model.config, "hidden_size", getattr(base_model.config, "reassemble_hidden_size", 384)))
 
-                model = DepthAnythingHeightModel(base_model)
-                model.load_state_dict(checkpoint_state, strict=True)
+                    class DepthAnythingMultitaskModel(nn.Module):
+                        def __init__(self, base):
+                            super().__init__()
+                            self.base = base
+                            self.semantic_head = nn.Sequential(
+                                nn.Conv2d(channels, 256, 3, padding=1),
+                                nn.GELU(),
+                                nn.Conv2d(256, CLASS_COUNT, 1),
+                            )
+                            self.boundary_head = nn.Sequential(
+                                nn.Conv2d(channels, 128, 3, padding=1),
+                                nn.GELU(),
+                                nn.Conv2d(128, 1, 1),
+                            )
+
+                        def forward(self, pixel_values):
+                            import math
+
+                            outputs = self.base(pixel_values=pixel_values, output_hidden_states=True)
+                            height = nn.functional.interpolate(
+                                outputs.predicted_depth.unsqueeze(1),
+                                size=pixel_values.shape[-2:],
+                                mode="bilinear",
+                                align_corners=True,
+                            )
+                            features = outputs.hidden_states[-1]
+                            if features.ndim == 3:
+                                side = int(math.sqrt(features.shape[1]))
+                                if side * side != features.shape[1]:
+                                    features = features[:, 1:]
+                                    side = int(math.sqrt(features.shape[1]))
+                                features = features[:, :side * side].transpose(1, 2).reshape(features.shape[0], features.shape[2], side, side)
+                            semantic = nn.functional.interpolate(self.semantic_head(features), size=pixel_values.shape[-2:], mode="bilinear", align_corners=False)
+                            boundary = nn.functional.interpolate(self.boundary_head(features), size=pixel_values.shape[-2:], mode="bilinear", align_corners=False)
+                            return {"height": torch.relu(height), "semantic": semantic, "boundary": boundary}
+
+                    model = DepthAnythingMultitaskModel(base_model)
+                    model.load_state_dict(checkpoint_state, strict=True)
+                    self._multitask = True
+                else:
+                    class DepthAnythingHeightModel(nn.Module):
+                        def __init__(self, base):
+                            super().__init__()
+                            self.model = base
+                            for parameter in self.model.backbone.embeddings.parameters():
+                                parameter.requires_grad = False
+
+                        def forward(self, pixel_values):
+                            outputs = self.model(pixel_values=pixel_values)
+                            predicted_height = nn.functional.interpolate(
+                                outputs.predicted_depth.unsqueeze(1),
+                                size=(input_size, input_size),
+                                mode="bilinear",
+                                align_corners=True,
+                            )
+                            return torch.relu(predicted_height)
+
+                    model = DepthAnythingHeightModel(base_model)
+                    model.load_state_dict(checkpoint_state, strict=True)
 
             if self.device_name:
                 device = self.device_name
@@ -199,7 +213,7 @@ class DepthAnythingModelService:
                         tensor = self._preprocess(tile).to(self.device_name)
                         tile_output = model(tensor)
                         if self._multitask:
-                            tile_prediction = tile_output["height"][0, 0].detach().cpu().numpy().astype(np.float32)
+                            tile_prediction = tile_output["height"][0, 0].detach().cpu().numpy().astype(np.float32) * self._height_scale
                             tile_semantic = tile_output["semantic"][0].detach().cpu().numpy().astype(np.float32)
                             tile_boundary = tile_output["boundary"][0, 0].detach().cpu().numpy().astype(np.float32)
                         else:
@@ -208,7 +222,7 @@ class DepthAnythingModelService:
                         flipped = tile.transpose(Image.Transpose.FLIP_LEFT_RIGHT)
                         flipped_output = model(self._preprocess(flipped).to(self.device_name))
                         if self._multitask:
-                            flipped_prediction = flipped_output["height"][0, 0].detach().cpu().numpy().astype(np.float32)
+                            flipped_prediction = flipped_output["height"][0, 0].detach().cpu().numpy().astype(np.float32) * self._height_scale
                             flipped_semantic = flipped_output["semantic"][0].detach().cpu().numpy().astype(np.float32)
                             flipped_semantic = np.flip(flipped_semantic, axis=2)
                             flipped_boundary = flipped_output["boundary"][0, 0].detach().cpu().numpy().astype(np.float32)

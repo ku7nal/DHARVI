@@ -16,11 +16,13 @@ from app.semantic_contract import BUILDING_CLASS, CLASS_COUNT
 
 SPLITS = ("train", "val", "test")
 _PAIR_SUFFIXES = (
+    "_IMG",
     "_RGB",
     "_AGL",
     "_DSM",
     "_HEIGHT",
     "_CLASS",
+    "_CLS",
     "_CLASSES",
     "_LABEL",
     "_LABELS",

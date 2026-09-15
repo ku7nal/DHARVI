@@ -192,21 +192,27 @@ def _write_model_prediction_assets(
 
 
 def _building_regions(
-    height_data: list[float],
+    height_data: list[float] | np.ndarray,
     grid_size: int,
     max_height: float,
-    semantic_data: list[int] | None = None,
+    semantic_data: list[int] | np.ndarray | None = None,
     semantic_grid_size: int | None = None,
     boundary_data: list[float] | np.ndarray | None = None,
 ) -> list[dict[str, object]]:
     """Extract polygon footprints from aligned semantics, with an nDSM fallback."""
-    values = np.asarray(height_data, dtype=np.float32).reshape((grid_size, grid_size))
-    source = "semantic_head" if semantic_data and semantic_grid_size else "height_threshold_fallback"
-    if semantic_data and semantic_grid_size:
-        labels = np.asarray(semantic_data, dtype=np.uint8).reshape((semantic_grid_size, semantic_grid_size))
-        if semantic_grid_size != grid_size:
+    values = np.asarray(height_data, dtype=np.float32)
+    if values.ndim == 1:
+        values = values.reshape((grid_size, grid_size))
+    if values.ndim != 2:
+        raise ValueError(f"Expected a 2D height map, got {values.shape}")
+    source = "semantic_head" if semantic_data is not None and semantic_grid_size else "height_threshold_fallback"
+    if semantic_data is not None and semantic_grid_size:
+        labels = np.asarray(semantic_data, dtype=np.uint8)
+        if labels.ndim == 1:
+            labels = labels.reshape((semantic_grid_size, semantic_grid_size))
+        if labels.shape != values.shape:
             labels = np.asarray(
-                Image.fromarray(labels, mode="L").resize((grid_size, grid_size), Image.Resampling.NEAREST),
+                Image.fromarray(labels, mode="L").resize((values.shape[1], values.shape[0]), Image.Resampling.NEAREST),
                 dtype=np.uint8,
             )
     else:
@@ -217,12 +223,13 @@ def _building_regions(
         labels = np.zeros(values.shape, dtype=np.uint8)
         labels[values >= threshold] = BUILDING_CLASS
 
+    minimum_area = 1 if values.shape[0] <= SCENE_GRID_SIZE else 4
     boundaries = None if boundary_data is None else np.asarray(boundary_data, dtype=np.float32)
     if boundaries is not None and boundaries.ndim == 1:
         boundaries = boundaries.reshape((grid_size, grid_size))
     if boundaries is not None and boundaries.shape != values.shape:
         boundaries = np.asarray(Image.fromarray(boundaries, mode="F").resize((values.shape[1], values.shape[0]), Image.Resampling.BILINEAR), dtype=np.float32)
-    regions = extract_building_footprints(labels, values, boundary_confidence=boundaries)
+    regions = extract_building_footprints(labels, values, minimum_area=minimum_area, boundary_confidence=boundaries)
     for region in regions:
         region["source"] = source
         region.pop("area", None)

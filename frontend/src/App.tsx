@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState } from "react";
 import { BenchmarkWorkspace } from "./components/BenchmarkWorkspace";
 import { PredictionInspector } from "./components/PredictionInspector";
+import humanIcon from "./components/human.png";
+import worldwideIcon from "./components/worldwide.png";
 import { ReconstructionViewer } from "./scene/ReconstructionViewer";
 import { DEFAULT_SCENE_LAYERS, type BenchmarkResult, type PredictionResult, type SceneLayers } from "./types";
 
@@ -27,7 +29,7 @@ function Icon({ name }: { name: "plus" | "layers" | "book" | "search" | "bell" |
 }
 
 function BrandMark() {
-  return <div className="brand-mark" aria-hidden="true">D</div>;
+  return <div className="brand-mark" aria-hidden="true"><img src={worldwideIcon} alt="" /></div>;
 }
 
 function App() {
@@ -42,6 +44,7 @@ function App() {
   const [benchmarks, setBenchmarks] = useState<BenchmarkResult[]>([]);
   const [benchmarkState, setBenchmarkState] = useState<"idle" | "loading" | "ready" | "error">("idle");
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [inspectorOpen, setInspectorOpen] = useState(true);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -88,6 +91,7 @@ function App() {
       setPrediction(body as PredictionResult);
       setLayers(DEFAULT_SCENE_LAYERS);
       setSelectedFile(file ?? null);
+      setInspectorOpen(true);
       setPredictionState("success");
     } catch (error) {
       setPredictionState("error");
@@ -96,6 +100,7 @@ function App() {
   }
 
   const statusLabel = backendStatus === "online" ? "API connected" : backendStatus === "offline" ? "API offline" : "Checking API";
+  const hasResult = activeNav === "New reconstruction" && predictionState === "success" && Boolean(prediction);
 
   return (
     <main className="page-shell">
@@ -120,7 +125,11 @@ function App() {
               <Icon name="plus" />
               <span>New reconstruction</span>
             </button>
-            <button className={`nav-item ${activeNav === "Examples" ? "active" : ""}`} onClick={() => setActiveNav("Examples")}>
+            <button
+              className={`nav-item ${hasResult && inspectorOpen ? "active" : activeNav === "Examples" ? "active" : ""}`}
+              onClick={() => hasResult ? setInspectorOpen((open) => !open) : setActiveNav("Examples")}
+              aria-label={hasResult ? (inspectorOpen ? "Close layers inspector" : "Open layers inspector") : "Examples"}
+            >
               <Icon name="layers" />
               <span>Examples</span>
             </button>
@@ -138,21 +147,13 @@ function App() {
         </aside>
 
         <div className="workspace">
-          <header className="topbar">
-            <div className="breadcrumbs">
-              <span>{activeNav}</span>
-              <span className="breadcrumb-separator">/</span>
-              <strong>{selectedFile?.name ?? "Untitled workspace"}</strong>
-            </div>
-            <div className="topbar-actions">
-              <div className="model-pill"><span className="status-dot online" /> DepthAnything V2 · GAMUS</div>
-              <button className="icon-button" aria-label="Search"><Icon name="search" /></button>
-              <button className="icon-button" aria-label="Notifications"><Icon name="bell" /></button>
-              <button className="avatar-button" aria-label="User profile">K</button>
-            </div>
-          </header>
-
           <div className="workspace-content">
+            <div className="floating-actions" aria-label="Workspace actions">
+              <span className="team-label">Team Drishtikon</span>
+              <button className="avatar-button" aria-label="User profile">
+                <img src={humanIcon} alt="" />
+              </button>
+            </div>
             <div className="content-heading">
               <div>
                 <p className="eyebrow">Monocular height reconstruction</p>
@@ -163,14 +164,7 @@ function App() {
 
             {activeNav === "New reconstruction" && predictionState === "success" && prediction ? (
               <section className="result-card">
-                <div className="result-heading">
-                  <div>
-                    <p className="eyebrow">Interactive reconstruction</p>
-                    <h2>{prediction.sourceName}</h2>
-                  </div>
-                  <div className="result-badge"><span className="status-dot online" /> {prediction.isFixture ? "Fixture result" : "Live model result"}</div>
-                </div>
-                <div className="result-body">
+                <div className={`result-body ${inspectorOpen ? "" : "inspector-closed"}`}>
                   <ReconstructionViewer
                     heightData={prediction.heightData}
                     gridSize={prediction.gridSize}
@@ -182,12 +176,13 @@ function App() {
                     layers={layers}
                     inputImageUrl={`http://localhost:8000${prediction.inputImageUrl}`}
                   />
-                  <PredictionInspector prediction={prediction} layers={layers} onToggleLayer={(layer) => setLayers((current) => ({ ...current, [layer]: !current[layer] }))} />
-                </div>
-                <div className="result-footer">
-                  <span>{prediction.heightReference === "absolute" ? "Metric DSM · meters" : "Estimated nDSM · relative meters"}</span>
-                  <span>{prediction.width} × {prediction.height} input · {prediction.gridSize} × {prediction.gridSize} scene</span>
-                  <button className="text-button" onClick={() => { setPrediction(null); setPredictionState("idle"); setSelectedFile(null); }}>New reconstruction <span>→</span></button>
+                  <PredictionInspector
+                      isOpen={inspectorOpen}
+                      prediction={prediction}
+                      layers={layers}
+                      onToggleLayer={(layer) => setLayers((current) => ({ ...current, [layer]: !current[layer] }))}
+                      onClose={() => setInspectorOpen(false)}
+                    />
                 </div>
               </section>
             ) : activeNav === "New reconstruction" && (
