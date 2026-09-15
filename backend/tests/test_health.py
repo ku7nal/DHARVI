@@ -24,6 +24,36 @@ class HealthEndpointTests(unittest.TestCase):
             {"status": "ok", "service": "depthwizard-api", "version": "0.1.0"},
         )
 
+    def test_route_endpoint_returns_a_path_for_connected_fixture_roads(self) -> None:
+        from app.main import _fixture_semantic_grid
+
+        semantic_data = _fixture_semantic_grid(32).ravel().tolist()
+        response = TestClient(app).post("/api/route", json={
+            "semanticData": semantic_data,
+            "gridSize": 32,
+            "start": {"row": 16, "column": 2},
+            "destination": {"row": 16, "column": 29},
+        })
+
+        self.assertEqual(response.status_code, 200)
+        result = response.json()
+        self.assertEqual(result["distanceCells"], 29)
+        self.assertEqual(result["path"][0], {"row": 16, "column": 2})
+        self.assertEqual(result["path"][-1], {"row": 16, "column": 29})
+
+    def test_route_endpoint_rejects_non_road_points(self) -> None:
+        from app.main import _fixture_semantic_grid
+
+        response = TestClient(app).post("/api/route", json={
+            "semanticData": _fixture_semantic_grid(8).ravel().tolist(),
+            "gridSize": 8,
+            "start": {"row": 7, "column": 7},
+            "destination": {"row": 3, "column": 3},
+        })
+
+        self.assertEqual(response.status_code, 422)
+        self.assertIn("semantic road cell", response.json()["detail"])
+
     def test_1024_tile_starts_cover_both_image_edges_with_overlap(self) -> None:
         service = DepthAnythingModelService(main_module.CHECKPOINT_PATH)
         starts = service._tile_starts(1024)

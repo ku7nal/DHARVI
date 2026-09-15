@@ -4,7 +4,7 @@ import { PredictionInspector } from "./components/PredictionInspector";
 import humanIcon from "./components/human.png";
 import worldwideIcon from "./components/worldwide.png";
 import { ReconstructionViewer } from "./scene/ReconstructionViewer";
-import { DEFAULT_SCENE_LAYERS, type BenchmarkResult, type PredictionResult, type SceneLayers } from "./types";
+import { DEFAULT_SCENE_LAYERS, type BenchmarkResult, type PredictionResult, type RoutePoint, type RoutePoints, type RouteResult, type SceneLayers } from "./types";
 
 type NavItem = "New reconstruction" | "Examples" | "About";
 type PredictionState = "idle" | "processing" | "success" | "error";
@@ -45,6 +45,11 @@ function App() {
   const [benchmarkState, setBenchmarkState] = useState<"idle" | "loading" | "ready" | "error">("idle");
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [inspectorOpen, setInspectorOpen] = useState(true);
+  const [route, setRoute] = useState<RouteResult | null>(null);
+  const [routePoints, setRoutePoints] = useState<RoutePoints>({});
+  const [routeSelectionMode, setRouteSelectionMode] = useState<"idle" | "start" | "destination">("idle");
+  const [routeState, setRouteState] = useState<"idle" | "loading" | "ready" | "error">("idle");
+  const [routeError, setRouteError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -88,8 +93,19 @@ function App() {
       const response = await fetch("http://localhost:8000/api/predict", { method: "POST", body: formData });
       const body = await response.json() as PredictionResult | { detail?: string };
       if (!response.ok) throw new Error("detail" in body ? body.detail : "Prediction could not be created.");
-      setPrediction(body as PredictionResult);
+      const nextPrediction = body as PredictionResult;
+      setPrediction(nextPrediction);
       setLayers(DEFAULT_SCENE_LAYERS);
+      setRoute(null);
+      setRoutePoints({});
+      setRouteSelectionMode("idle");
+      setRouteState("idle");
+      setRouteError(null);
+      if (exampleId === "gamus-urban-demo" && nextPrediction.semanticData?.length && nextPrediction.semanticGridSize) {
+        const points = { start: { row: Math.round(nextPrediction.semanticGridSize * 0.47), column: 2 }, destination: { row: Math.round(nextPrediction.semanticGridSize * 0.47), column: nextPrediction.semanticGridSize - 4 } };
+        setRoutePoints(points);
+        void requestRoute(points, nextPrediction);
+      }
       setSelectedFile(file ?? null);
       setInspectorOpen(true);
       setPredictionState("success");
@@ -97,6 +113,54 @@ function App() {
       setPredictionState("error");
       setErrorMessage(error instanceof Error ? error.message : "Prediction could not be created.");
     }
+  }
+
+  function selectRoutePoint(point: RoutePoint) {
+    setRoute(null);
+    setRouteError(null);
+    const selectedClass = prediction?.semanticData && prediction.semanticGridSize
+      ? prediction.semanticData[point.row * prediction.semanticGridSize + point.column]
+      : undefined;
+    if (selectedClass !== 5) {
+      setRouteError("Select a point on a semantic road cell.");
+      setRouteState("error");
+      return;
+    }
+    if (routeSelectionMode === "start") {
+      setRoutePoints((current) => ({ ...current, start: point }));
+    } else if (routeSelectionMode === "destination") {
+      setRoutePoints((current) => ({ ...current, destination: point }));
+    }
+    setRouteSelectionMode("idle");
+    setRouteState("idle");
+  }
+
+  async function requestRoute(points = routePoints, sourcePrediction = prediction) {
+    if (!sourcePrediction?.semanticData?.length || !sourcePrediction.semanticGridSize || !points.start || !points.destination) return;
+    setRouteState("loading");
+    setRouteError(null);
+    try {
+      const response = await fetch("http://localhost:8000/api/route", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ semanticData: sourcePrediction.semanticData, gridSize: sourcePrediction.semanticGridSize, start: points.start, destination: points.destination }),
+      });
+      const body = await response.json() as RouteResult | { detail?: string };
+      if (!response.ok) throw new Error("detail" in body ? body.detail : "Route could not be generated.");
+      setRoute(body as RouteResult);
+      setRoutePoints({ start: (body as RouteResult).start, destination: (body as RouteResult).destination });
+      setRouteState("ready");
+    } catch (error) {
+      setRouteState("error");
+      setRouteError(error instanceof Error ? error.message : "Route could not be generated.");
+    }
+  }
+
+  function loadDemoRoute() {
+    if (!prediction?.semanticGridSize) return;
+    const points = { start: { row: Math.round(prediction.semanticGridSize * 0.47), column: 2 }, destination: { row: Math.round(prediction.semanticGridSize * 0.47), column: prediction.semanticGridSize - 4 } };
+    setRoutePoints(points);
+    void requestRoute(points, prediction);
   }
 
   const statusLabel = backendStatus === "online" ? "API connected" : backendStatus === "offline" ? "API offline" : "Checking API";
@@ -173,6 +237,10 @@ function App() {
                     semanticData={prediction.semanticData}
                     semanticGridSize={prediction.semanticGridSize}
                     semanticClasses={prediction.semanticClasses}
+                    route={route}
+                    routePoints={routePoints}
+                    routeSelectionMode={routeSelectionMode}
+                    onRoutePointSelect={selectRoutePoint}
                     layers={layers}
                     inputImageUrl={`http://localhost:8000${prediction.inputImageUrl}`}
                   />
@@ -182,6 +250,15 @@ function App() {
                       layers={layers}
                       onToggleLayer={(layer) => setLayers((current) => ({ ...current, [layer]: !current[layer] }))}
                       onClose={() => setInspectorOpen(false)}
+                      route={route}
+                      routePoints={routePoints}
+                      routeSelectionMode={routeSelectionMode}
+                      routeState={routeState}
+                      routeError={routeError}
+                      onRouteModeChange={setRouteSelectionMode}
+                      onPlanRoute={() => void requestRoute()}
+                      onLoadDemoRoute={loadDemoRoute}
+                      onClearRoute={() => { setRoute(null); setRoutePoints({}); setRouteState("idle"); setRouteError(null); }}
                     />
                 </div>
               </section>

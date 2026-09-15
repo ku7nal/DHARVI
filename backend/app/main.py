@@ -5,6 +5,7 @@ from uuid import uuid4
 
 import numpy as np
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
+from pydantic import BaseModel
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from PIL import Image, ImageDraw, ImageFilter, ImageOps
@@ -13,6 +14,7 @@ from rasterio.io import MemoryFile
 from app.building_footprints import clean_semantic_labels, extract_building_footprints
 from app.geospatial import calibrate_dsm, parse_ground_control_points, write_dsm_geotiff
 from app.model_service import DepthAnythingModelService, ModelUnavailableError
+from app.route_planner import plan_route
 from app.semantic_contract import BUILDING_CLASS, CLASS_COUNT, SEMANTIC_CLASSES
 
 MEDIA_DIR = Path(__file__).resolve().parent.parent / "media"
@@ -65,9 +67,34 @@ app.add_middleware(
 app.mount("/media", StaticFiles(directory=MEDIA_DIR), name="media")
 
 
+class RoutePoint(BaseModel):
+    row: int
+    column: int
+
+
+class RouteRequest(BaseModel):
+    semanticData: list[int]
+    gridSize: int
+    start: RoutePoint
+    destination: RoutePoint
+
+
 @app.get("/api/health")
 def health() -> dict[str, str]:
     return {"status": "ok", "service": "depthwizard-api", "version": app.version}
+
+
+@app.post("/api/route")
+def route(request: RouteRequest) -> dict[str, object]:
+    try:
+        return plan_route(
+            request.semanticData,
+            request.gridSize,
+            request.start.model_dump(),
+            request.destination.model_dump(),
+        )
+    except ValueError as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error
 
 
 @app.get("/api/benchmarks")

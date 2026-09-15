@@ -1,5 +1,5 @@
 import { useState, type ReactNode } from "react";
-import type { PredictionResult, SceneLayers } from "../types";
+import type { PredictionResult, RoutePoints, RouteResult, SceneLayers } from "../types";
 
 const API_BASE = "http://localhost:8000";
 
@@ -9,6 +9,15 @@ type PredictionInspectorProps = {
   layers: SceneLayers;
   onToggleLayer: (layer: keyof SceneLayers) => void;
   onClose: () => void;
+  route: RouteResult | null;
+  routePoints: RoutePoints;
+  routeSelectionMode: "idle" | "start" | "destination";
+  routeState: "idle" | "loading" | "ready" | "error";
+  routeError: string | null;
+  onRouteModeChange: (mode: "idle" | "start" | "destination") => void;
+  onPlanRoute: () => void;
+  onLoadDemoRoute: () => void;
+  onClearRoute: () => void;
 };
 
 function InspectorSection({ title, children, defaultOpen = true }: { title: string; children: ReactNode; defaultOpen?: boolean }) {
@@ -34,7 +43,7 @@ function LayerToggle({ label, description, active, onClick }: { label: string; d
   );
 }
 
-function PredictionInspector({ isOpen, prediction, layers, onToggleLayer, onClose }: PredictionInspectorProps) {
+function PredictionInspector({ isOpen, prediction, layers, onToggleLayer, onClose, route, routePoints, routeSelectionMode, routeState, routeError, onRouteModeChange, onPlanRoute, onLoadDemoRoute, onClearRoute }: PredictionInspectorProps) {
   const semanticPayloadAligned = Boolean(
     prediction.semanticGridSize &&
     prediction.semanticGridSize === prediction.gridSize &&
@@ -95,6 +104,25 @@ function PredictionInspector({ isOpen, prediction, layers, onToggleLayer, onClos
         <LayerToggle label="Slope" description="Terrain gradient heatmap" active={layers.slope} onClick={() => onToggleLayer("slope")} />
         <LayerToggle label="RGB relief" description="Optional terrain texture" active={layers.rgb} onClick={() => onToggleLayer("rgb")} />
         <LayerToggle label="Wireframe" description="Mesh structure" active={layers.wireframe} onClick={() => onToggleLayer("wireframe")} />
+      </InspectorSection>
+
+      <InspectorSection title="Evacuation route">
+        {semanticAvailable ? <>
+          <div className="route-intro">Plan a road-only emergency route from this semantic reconstruction.</div>
+          <div className="route-points">
+            <div><span className="route-marker-dot origin" />Origin <strong>{routePoints.start ? `${routePoints.start.row}, ${routePoints.start.column}` : "Not set"}</strong></div>
+            <div><span className="route-marker-dot destination" />Destination <strong>{routePoints.destination ? `${routePoints.destination.row}, ${routePoints.destination.column}` : "Not set"}</strong></div>
+          </div>
+          <div className="route-actions">
+            <button className={`route-button ${routeSelectionMode === "start" ? "active" : ""}`} onClick={() => onRouteModeChange("start")}>Select origin</button>
+            <button className={`route-button ${routeSelectionMode === "destination" ? "active" : ""}`} onClick={() => onRouteModeChange("destination")}>Select destination</button>
+          </div>
+          <button className="primary-button route-plan-button" disabled={!routePoints.start || !routePoints.destination || routeState === "loading"} onClick={onPlanRoute}>{routeState === "loading" ? "Planning route…" : "Plan evacuation route"}</button>
+          <button className="text-button route-demo-button" onClick={onLoadDemoRoute}>Load demo route <span>→</span></button>
+          {routeSelectionMode !== "idle" && <div className="route-hint">Click a road cell in the scene to set the {routeSelectionMode === "start" ? "origin" : "destination"}.</div>}
+          {routeState === "error" && <div className="route-error">{routeError}</div>}
+          {route && <div className="route-result"><strong>Route ready</strong><span>{route.distanceCells} road cells · {route.path.length} waypoints</span><button className="text-button" onClick={onClearRoute}>Clear route</button></div>}
+        </> : <div className="inspector-note">Evacuation routing requires an aligned semantic road mask. Use the GAMUS example to try the deterministic route demo.</div>}
       </InspectorSection>
 
       <InspectorSection title="Analysis">

@@ -184,6 +184,26 @@ h1 { margin-bottom: 0; font-family: "Inter Tight", sans-serif; font-size: clamp(
 .semantic-legend-item { display: flex; align-items: center; gap: 5px; min-width: 0; color: #817e8d; font-size: 9px; }
 .semantic-swatch { width: 9px; height: 9px; flex: 0 0 9px; border-radius: 3px; box-shadow: inset 0 0 0 1px rgba(40, 39, 53, .08); }
 .semantic-note { display: block; margin-top: 9px; color: #aaa7b2; font-size: 8px; }
+.route-intro { margin-bottom: 12px; color: #96939f; font-size: 9px; line-height: 1.5; }
+.route-points { display: grid; gap: 7px; margin-bottom: 11px; color: #817d8c; font-size: 9px; }
+.route-points > div { display: flex; align-items: center; gap: 6px; }
+.route-points strong { margin-left: auto; color: #5f5a70; font-size: 9px; font-weight: 600; }
+.route-marker-dot { width: 8px; height: 8px; border-radius: 50%; }
+.route-marker-dot.origin { background: #278f72; }
+.route-marker-dot.destination { background: #d95757; }
+.route-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+.route-button { padding: 8px 6px; border: 1px solid #e9e6f1; border-radius: 8px; color: #807b8d; background: #fff; cursor: pointer; font-size: 9px; }
+.route-button:hover, .route-button.active { border-color: #9b84e0; color: #604ac5; background: #f4f1ff; }
+.route-plan-button { width: 100%; justify-content: center; margin-top: 10px; padding: 9px 10px; font-size: 10px; }
+.route-plan-button:disabled { opacity: .45; cursor: not-allowed; transform: none; }
+.route-demo-button { display: block; margin: 10px auto 0; font-size: 10px; }
+.route-hint, .route-error, .route-result { margin-top: 10px; padding: 9px; border-radius: 8px; font-size: 9px; line-height: 1.5; }
+.route-hint { color: #6f61a1; background: #f3f0ff; }
+.route-error { color: #a55761; background: #fff1f2; }
+.route-result { display: grid; gap: 3px; color: #47745c; background: #eef8f0; }
+.route-result strong { font-size: 10px; }
+.route-result span { color: #75927c; }
+.route-result .text-button { margin: 4px 0 0; color: #6f61a1; font-size: 9px; text-align: left; }
 .visually-hidden { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
 
 @media (max-width: 850px) {
