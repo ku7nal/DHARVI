@@ -7,3 +7,4 @@ backend/.rasterio/
 astra.pth
 *.py[cod]
 .DS_Store
+kaggle/maxar-test/
