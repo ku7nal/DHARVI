@@ -237,6 +237,123 @@ def _normalized_loop(loop: Iterable[tuple[int, int]], rows: int, columns: int, t
     return [[round(value, 6) for value in point] for point in _simplify(points, grid_tolerance)]
 
 
+def _remove_collinear(points: list[Point], tolerance: float = 1e-9) -> list[Point]:
+    if len(points) <= 3:
+        return points
+    cleaned: list[Point] = []
+    for point in points:
+        if cleaned and np.hypot(point[0] - cleaned[-1][0], point[1] - cleaned[-1][1]) <= tolerance:
+            continue
+        cleaned.append(point)
+    if len(cleaned) > 1 and np.hypot(cleaned[0][0] - cleaned[-1][0], cleaned[0][1] - cleaned[-1][1]) <= tolerance:
+        cleaned.pop()
+    changed = True
+    while changed and len(cleaned) > 3:
+        changed = False
+        kept: list[Point] = []
+        for index, current in enumerate(cleaned):
+            previous = cleaned[index - 1]
+            following = cleaned[(index + 1) % len(cleaned)]
+            cross = (current[0] - previous[0]) * (following[1] - current[1]) - (current[1] - previous[1]) * (following[0] - current[0])
+            if abs(cross) <= tolerance:
+                changed = True
+                continue
+            kept.append(current)
+        cleaned = kept
+    return cleaned
+
+
+def _polygon_area(points: list[Point]) -> float:
+    return sum(points[index][0] * points[(index + 1) % len(points)][1] - points[(index + 1) % len(points)][0] * points[index][1] for index in range(len(points))) / 2
+
+
+def _segments_intersect(first_start: Point, first_end: Point, second_start: Point, second_end: Point) -> bool:
+    def orientation(start: Point, end: Point, point: Point) -> float:
+        return (end[0] - start[0]) * (point[1] - start[1]) - (end[1] - start[1]) * (point[0] - start[0])
+
+    def on_segment(start: Point, end: Point, point: Point) -> bool:
+        return min(start[0], end[0]) - 1e-9 <= point[0] <= max(start[0], end[0]) + 1e-9 and min(start[1], end[1]) - 1e-9 <= point[1] <= max(start[1], end[1]) + 1e-9
+
+    first_orientation = orientation(first_start, first_end, second_start)
+    second_orientation = orientation(first_start, first_end, second_end)
+    third_orientation = orientation(second_start, second_end, first_start)
+    fourth_orientation = orientation(second_start, second_end, first_end)
+    if (first_orientation > 1e-9 > second_orientation or first_orientation < -1e-9 < second_orientation) and (third_orientation > 1e-9 > fourth_orientation or third_orientation < -1e-9 < fourth_orientation):
+        return True
+    return (abs(first_orientation) <= 1e-9 and on_segment(first_start, first_end, second_start)) or (abs(second_orientation) <= 1e-9 and on_segment(first_start, first_end, second_end)) or (abs(third_orientation) <= 1e-9 and on_segment(second_start, second_end, first_start)) or (abs(fourth_orientation) <= 1e-9 and on_segment(second_start, second_end, first_end))
+
+
+def _has_self_intersection(points: list[Point]) -> bool:
+    for first_index in range(len(points)):
+        first_start = points[first_index]
+        first_end = points[(first_index + 1) % len(points)]
+        for second_index in range(first_index + 1, len(points)):
+            if second_index in {first_index, (first_index - 1) % len(points), (first_index + 1) % len(points)}:
+                continue
+            second_start = points[second_index]
+            second_end = points[(second_index + 1) % len(points)]
+            if _segments_intersect(first_start, first_end, second_start, second_end):
+                return True
+    return False
+
+
+def _orthogonalize_loop(points: list[list[float]]) -> list[list[float]]:
+    original = [(float(point[0]), float(point[1])) for point in points]
+    simplified = _remove_collinear(original)
+    if len(simplified) < 4:
+        return points
+    orientations: list[str] = []
+    lines: list[float] = []
+    lengths: list[float] = []
+    for index, start in enumerate(simplified):
+        end = simplified[(index + 1) % len(simplified)]
+        delta_x = abs(end[0] - start[0])
+        delta_y = abs(end[1] - start[1])
+        dominant = max(delta_x, delta_y)
+        if dominant <= 1e-9 or min(delta_x, delta_y) > dominant * 0.35:
+            return points
+        if delta_x >= delta_y:
+            orientations.append("horizontal")
+            lines.append((start[1] + end[1]) / 2)
+            lengths.append(delta_x)
+        else:
+            orientations.append("vertical")
+            lines.append((start[0] + end[0]) / 2)
+            lengths.append(delta_y)
+    if any(orientations[index] == orientations[(index + 1) % len(orientations)] for index in range(len(orientations))):
+        return points
+
+    span_x = max(point[0] for point in simplified) - min(point[0] for point in simplified)
+    span_y = max(point[1] for point in simplified) - min(point[1] for point in simplified)
+    for index, orientation in enumerate(orientations):
+        span = span_x if orientation == "horizontal" else span_y
+        if lengths[index] >= max(span * 0.2, 1e-6):
+            continue
+        candidates = [candidate for candidate, candidate_orientation in enumerate(orientations) if candidate_orientation == orientation and lengths[candidate] > lengths[index]]
+        if candidates:
+            nearest = min(candidates, key=lambda candidate: abs(lines[candidate] - lines[index]))
+            if abs(lines[nearest] - lines[index]) <= max(span * 0.26, 1e-6):
+                lines[index] = lines[nearest]
+
+    orthogonal: list[Point] = []
+    for index, orientation in enumerate(orientations):
+        incoming = orientations[index - 1]
+        if incoming == orientation:
+            return points
+        if orientation == "horizontal":
+            orthogonal.append((lines[index - 1], lines[index]))
+        else:
+            orthogonal.append((lines[index], lines[index - 1]))
+    orthogonal = _remove_collinear(orthogonal)
+    if len(orthogonal) < 4 or _has_self_intersection(orthogonal):
+        return points
+    original_area = abs(_polygon_area(original))
+    orthogonal_area = abs(_polygon_area(orthogonal))
+    if original_area <= 1e-9 or abs(orthogonal_area - original_area) / original_area > 0.18:
+        return points
+    return [[round(x, 6), round(y, 6)] for x, y in orthogonal]
+
+
 def _surrounding_values(component: set[tuple[int, int]], heights: np.ndarray, labels: np.ndarray | None = None) -> np.ndarray:
     candidates: list[float] = []
     rows, columns = heights.shape
@@ -297,7 +414,7 @@ def extract_building_footprints(
         loops = _boundary_loops(component)
         if not loops:
             continue
-        normalized_loops = [_normalized_loop(loop, rows, columns, simplify_tolerance) for loop in loops]
+        normalized_loops = [_orthogonalize_loop(_normalized_loop(loop, rows, columns, simplify_tolerance)) for loop in loops]
 
         def loop_area(loop: list[list[float]]) -> float:
             return abs(sum(loop[index][0] * loop[(index + 1) % len(loop)][1] - loop[(index + 1) % len(loop)][0] * loop[index][1] for index in range(len(loop))) / 2)

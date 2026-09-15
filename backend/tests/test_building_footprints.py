@@ -111,6 +111,36 @@ class BuildingFootprintTests(unittest.TestCase):
         self.assertEqual(region[0]["minRow"], 3)
         self.assertEqual(region[0]["maxColumn"], 10)
 
+    def test_noisy_rectangular_outline_is_orthogonalized(self) -> None:
+        labels = np.zeros((20, 20), dtype=np.uint8)
+        labels[4:16, 4:16] = BUILDING_CLASS
+        labels[4, 7:10] = 0
+        labels[5, 7:10] = BUILDING_CLASS
+        labels[15, 11:14] = 0
+        labels[14, 11:14] = BUILDING_CLASS
+        heights = labels.astype(np.float32) * 12
+
+        region = extract_building_footprints(labels, heights)[0]
+        footprint = region["footprint"]
+        self.assertLessEqual(len(footprint), 4)
+        self.assertEqual(len({round(point[1], 6) for point in footprint}), 2)
+        self.assertEqual(len({round(point[0], 6) for point in footprint}), 2)
+        self.assertAlmostEqual(min(point[0] for point in footprint), -0.3)
+        self.assertAlmostEqual(max(point[0] for point in footprint), 0.3)
+
+    def test_diagonal_outline_keeps_simplified_fallback(self) -> None:
+        labels = np.zeros((16, 16), dtype=np.uint8)
+        for row in range(3, 12):
+            for column in range(3, 12):
+                if column >= row - 1:
+                    labels[row, column] = BUILDING_CLASS
+        heights = labels.astype(np.float32) * 10
+
+        region = extract_building_footprints(labels, heights)[0]
+        footprint = region["footprint"]
+        self.assertGreaterEqual(len(footprint), 4)
+        self.assertTrue(any(abs(footprint[index][0] - footprint[(index + 1) % len(footprint)][0]) > 1e-6 and abs(footprint[index][1] - footprint[(index + 1) % len(footprint)][1]) > 1e-6 for index in range(len(footprint))))
+
     def test_high_confidence_internal_boundary_splits_connected_buildings(self) -> None:
         labels = np.zeros((50, 60), dtype=np.uint8)
         labels[2:48, 5:55] = BUILDING_CLASS
