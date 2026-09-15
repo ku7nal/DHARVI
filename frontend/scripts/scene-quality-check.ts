@@ -15,9 +15,18 @@ assert.equal(report.fullGridCoverage, true);
 assert.equal(report.groundedWalls, true);
 assert.equal(report.flatTopBuildings, true);
 assert.equal(report.withinBrowserBudget, true);
+assert.equal(report.finiteBuildingGeometry, true);
+assert.equal(report.validBuildingPlacement, true);
+assert.equal(report.fallbackSafe, true);
 assert.equal(report.detailedBuildings, 1);
 assert.equal(report.mediumBuildings, 1);
 assert.equal(report.distantBuildings, 1);
 assert.equal(MAX_TREE_INSTANCES, 512);
+
+const malformedRegion = { ...region(0.5), centerX: Number.NaN, footprint: [[-0.1, -0.1], [Number.NaN, 0], [0.1, 0.1]] as Array<[number, number]> };
+const malformedReport = validateSceneQuality(Array.from({ length: 128 * 128 }, () => 0), 128, 30, [malformedRegion]);
+assert.equal(malformedReport.finiteBuildingGeometry, false);
+assert.equal(malformedReport.validBuildingPlacement, false);
+assert.equal(malformedReport.fallbackSafe, false);
 
 console.log("scene quality fixture passed");
