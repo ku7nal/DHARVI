@@ -21,6 +21,11 @@ type PredictionResult = {
   semanticData?: number[] | null;
   semanticMapUrl?: string | null;
   semanticSource?: "fixture" | "trained" | "unavailable";
+  boundaryMapUrl?: string | null;
+  boundaryGridSize?: number | null;
+  boundaryData?: number[] | null;
+  boundarySource?: "trained" | "unavailable";
+  boundaryConfidence?: number | null;
   buildingRegions?: BuildingRegion[];
   buildingRegionSource?: "height_threshold_fallback" | "semantic_head";
   inputFormat: "image" | "geotiff" | "example";

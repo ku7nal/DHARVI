@@ -111,6 +111,18 @@ class BuildingFootprintTests(unittest.TestCase):
         self.assertEqual(region[0]["minRow"], 3)
         self.assertEqual(region[0]["maxColumn"], 10)
 
+    def test_high_confidence_internal_boundary_splits_connected_buildings(self) -> None:
+        labels = np.zeros((50, 60), dtype=np.uint8)
+        labels[2:48, 5:55] = BUILDING_CLASS
+        heights = labels.astype(np.float32) * 12
+        boundary = np.zeros_like(heights)
+        boundary[2:48, 30] = 1.0
+
+        regions = extract_building_footprints(labels, heights, boundary_confidence=boundary)
+
+        self.assertEqual(len(regions), 2)
+        self.assertTrue(all(region["source"] == "semantic_head" for region in regions))
+
 
 if __name__ == "__main__":
     unittest.main()

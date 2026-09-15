@@ -100,6 +100,9 @@ function PredictionInspector({ prediction, layers, onToggleLayer }: PredictionIn
         </div>
         <div className="inspector-note">{prediction.heightReference === "absolute" ? "Metric DSM calibrated to the source GeoTIFF reference." : "This prediction is an estimated nDSM with relative height values, not an absolute DSM."}</div>
         {prediction.calibration && prediction.calibration.status !== "not_applicable" && <div className="inspector-note">Calibration: {prediction.calibration.status.replaceAll("_", " ")} · confidence {prediction.calibration.confidence === null ? "—" : `${(prediction.calibration.confidence * 100).toFixed(0)}%`} · residual {prediction.calibration.residualError === null ? "—" : `${prediction.calibration.residualError.toFixed(2)} m`}</div>}
+        {prediction.boundarySource === "trained"
+          ? <div className="inspector-note">CNN boundary refinement active · confidence {prediction.boundaryConfidence === null || prediction.boundaryConfidence === undefined ? "—" : `${(prediction.boundaryConfidence * 100).toFixed(0)}%`}</div>
+          : <div className="inspector-note">CNN boundary refinement unavailable; building footprints use semantic labels only.</div>}
         {prediction.dsmUrl && <a className="text-button" href={`${API_BASE}${prediction.dsmUrl}`} download>Download metric DSM GeoTIFF</a>}
         <div className="inspector-note">Buildings: {prediction.buildingRegionSource === "semantic_head" ? "GAMUS semantic mask" : "height-derived fallback"} · {prediction.buildingRegions?.length ?? 0} regions</div>
         {prediction.geospatial && <div className="geospatial-card">

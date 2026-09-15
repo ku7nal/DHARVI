@@ -185,6 +185,7 @@ class DepthAnythingModelService:
             image = image.convert("RGB")
             prediction_sum = np.zeros((image.height, image.width), dtype=np.float32)
             semantic_sum = np.zeros((CLASS_COUNT, image.height, image.width), dtype=np.float32) if self._multitask else None
+            boundary_sum = np.zeros_like(prediction_sum) if self._multitask else None
             weight_sum = np.zeros_like(prediction_sum)
             # A smooth window prevents seams where adjacent tiles meet.
             window_1d = np.hanning(self.input_size).astype(np.float32)
@@ -200,6 +201,7 @@ class DepthAnythingModelService:
                         if self._multitask:
                             tile_prediction = tile_output["height"][0, 0].detach().cpu().numpy().astype(np.float32)
                             tile_semantic = tile_output["semantic"][0].detach().cpu().numpy().astype(np.float32)
+                            tile_boundary = tile_output["boundary"][0, 0].detach().cpu().numpy().astype(np.float32)
                         else:
                             tile_prediction = tile_output[0, 0].detach().cpu().numpy().astype(np.float32)
                         # TTA catches the strongest directional bias in aerial imagery.
@@ -209,6 +211,7 @@ class DepthAnythingModelService:
                             flipped_prediction = flipped_output["height"][0, 0].detach().cpu().numpy().astype(np.float32)
                             flipped_semantic = flipped_output["semantic"][0].detach().cpu().numpy().astype(np.float32)
                             flipped_semantic = np.flip(flipped_semantic, axis=2)
+                            flipped_boundary = flipped_output["boundary"][0, 0].detach().cpu().numpy().astype(np.float32)
                         else:
                             flipped_prediction = flipped_output[0, 0].detach().cpu().numpy().astype(np.float32)
                         flipped_prediction = np.fliplr(flipped_prediction)
@@ -220,6 +223,8 @@ class DepthAnythingModelService:
                         if semantic_sum is not None:
                             tile_semantic = (tile_semantic + flipped_semantic) * 0.5
                             semantic_sum[:, top:top + valid_height, left:left + valid_width] += tile_semantic[:, :valid_height, :valid_width] * tile_weight
+                            tile_boundary = (tile_boundary + np.fliplr(flipped_boundary)) * 0.5
+                            boundary_sum[top:top + valid_height, left:left + valid_width] += tile_boundary[:valid_height, :valid_width] * tile_weight
                         weight_sum[top:top + valid_height, left:left + valid_width] += tile_weight
 
             result: dict[str, np.ndarray] = {
@@ -227,6 +232,8 @@ class DepthAnythingModelService:
             }
             if semantic_sum is not None:
                 result["semantic"] = np.divide(semantic_sum, np.maximum(weight_sum, 1e-6)[None]).astype(np.float32)
+                boundary_logits = np.divide(boundary_sum, np.maximum(weight_sum, 1e-6)).astype(np.float32)
+                result["boundary"] = (1.0 / (1.0 + np.exp(-np.clip(boundary_logits, -30.0, 30.0)))).astype(np.float32)
             return result
         except ModelUnavailableError:
             raise

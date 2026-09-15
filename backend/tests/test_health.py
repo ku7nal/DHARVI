@@ -183,6 +183,11 @@ class FixturePredictionTests(unittest.TestCase):
         self.assertEqual({item["id"] for item in result["semanticClasses"]}, set(range(7)))
         self.assertTrue(set(result["semanticData"]).issubset(set(range(7))))
         self.assertEqual(Image.open(BytesIO(self.client.get(result["semanticMapUrl"]).content)).size, (256, 256))
+        self.assertEqual(result["boundarySource"], "trained")
+        self.assertEqual(result["boundaryGridSize"], 256)
+        self.assertEqual(len(result["boundaryData"]), 256 * 256)
+        self.assertGreater(result["boundaryConfidence"], 0.9)
+        self.assertEqual(Image.open(BytesIO(self.client.get(result["boundaryMapUrl"]).content)).size, (10, 8))
 
     def test_semantic_logits_are_resized_before_scene_labels_are_selected(self) -> None:
         from app.main import _prepare_semantic_labels
@@ -384,9 +389,12 @@ class TrainedSemanticModelService:
         semantic = np.full((7, 8, 10), -10.0, dtype=np.float32)
         for class_id in range(7):
             semantic[class_id][classes == class_id] = 10.0
+        boundary = np.zeros((8, 10), dtype=np.float32)
+        boundary[0, :] = 1.0
         return {
             "height": np.full((8, 10), 12.0, dtype=np.float32),
             "semantic": semantic,
+            "boundary": boundary,
         }
 
 

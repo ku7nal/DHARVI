@@ -38,11 +38,17 @@ def _resize_semantic_logits(logits: np.ndarray, target_size: int) -> np.ndarray:
     ])
 
 
-def _prepare_semantic_labels(logits: np.ndarray, target_size: int) -> tuple[np.ndarray, np.ndarray]:
+def _prepare_semantic_labels(logits: np.ndarray, target_size: int, boundary_confidence: np.ndarray | None = None) -> tuple[np.ndarray, np.ndarray]:
     """Return cleaned full-resolution and scene-grid semantic labels."""
     values = np.asarray(logits, dtype=np.float32)
-    full_labels = clean_semantic_labels(np.argmax(values, axis=0).astype(np.uint8))
-    scene_labels = clean_semantic_labels(np.argmax(_resize_semantic_logits(values, target_size), axis=0).astype(np.uint8))
+    full_boundary = None if boundary_confidence is None else np.asarray(boundary_confidence, dtype=np.float32)
+    full_labels = clean_semantic_labels(np.argmax(values, axis=0).astype(np.uint8), boundary_confidence=full_boundary)
+    scene_values = _resize_semantic_logits(values, target_size)
+    scene_boundary = None if full_boundary is None else np.asarray(
+        Image.fromarray(full_boundary, mode="F").resize((target_size, target_size), Image.Resampling.BILINEAR),
+        dtype=np.float32,
+    )
+    scene_labels = clean_semantic_labels(np.argmax(scene_values, axis=0).astype(np.uint8), boundary_confidence=scene_boundary)
     return full_labels, scene_labels
 
 
@@ -148,6 +154,14 @@ def _write_semantic_asset(labels: np.ndarray, prediction_id: str) -> tuple[str, 
     return f"/media/{path.name}", [int(value) for value in labels.ravel()]
 
 
+def _write_boundary_asset(boundary_confidence: np.ndarray, prediction_id: str) -> tuple[str, list[float]]:
+    values = np.clip(np.nan_to_num(np.asarray(boundary_confidence, dtype=np.float32), nan=0.0), 0.0, 1.0)
+    path = MEDIA_DIR / f"{prediction_id}-boundaries.png"
+    Image.fromarray(np.round(values * 255).astype(np.uint8), mode="L").save(path, format="PNG")
+    grid = Image.fromarray(values, mode="F").resize((SCENE_GRID_SIZE, SCENE_GRID_SIZE), Image.Resampling.BILINEAR)
+    return f"/media/{path.name}", [round(float(value), 4) for value in np.asarray(grid, dtype=np.float32).ravel()]
+
+
 def _write_model_prediction_assets(
     image: Image.Image,
     height_map: np.ndarray,
@@ -183,6 +197,7 @@ def _building_regions(
     max_height: float,
     semantic_data: list[int] | None = None,
     semantic_grid_size: int | None = None,
+    boundary_data: list[float] | np.ndarray | None = None,
 ) -> list[dict[str, object]]:
     """Extract polygon footprints from aligned semantics, with an nDSM fallback."""
     values = np.asarray(height_data, dtype=np.float32).reshape((grid_size, grid_size))
@@ -202,7 +217,12 @@ def _building_regions(
         labels = np.zeros(values.shape, dtype=np.uint8)
         labels[values >= threshold] = BUILDING_CLASS
 
-    regions = extract_building_footprints(labels, values)
+    boundaries = None if boundary_data is None else np.asarray(boundary_data, dtype=np.float32)
+    if boundaries is not None and boundaries.ndim == 1:
+        boundaries = boundaries.reshape((grid_size, grid_size))
+    if boundaries is not None and boundaries.shape != values.shape:
+        boundaries = np.asarray(Image.fromarray(boundaries, mode="F").resize((values.shape[1], values.shape[0]), Image.Resampling.BILINEAR), dtype=np.float32)
+    regions = extract_building_footprints(labels, values, boundary_confidence=boundaries)
     for region in regions:
         region["source"] = source
         region.pop("area", None)
@@ -448,6 +468,12 @@ async def predict(
     semantic_grid_size: int | None = None
     semantic_source = "unavailable"
     semantic_labels: np.ndarray | None = None
+    boundary_map_url: str | None = None
+    boundary_data: list[float] | None = None
+    boundary_grid_size: int | None = None
+    boundary_source = "unavailable"
+    boundary_confidence: float | None = None
+    boundary_probability: np.ndarray | None = None
     dsm_url: str | None = None
     calibration: dict[str, object] = {
         "status": "not_applicable",
@@ -469,10 +495,19 @@ async def predict(
             if hasattr(model_service, "predict_result"):
                 prediction = model_service.predict_result(image)
                 height_map = prediction["height"]
+                if "boundary" in prediction:
+                    boundary_probability = np.asarray(prediction["boundary"], dtype=np.float32)
+                    if boundary_probability.shape != height_map.shape:
+                        raise ModelUnavailableError("The model returned a boundary map that is not aligned with its height map.")
+                    boundary_probability = np.clip(np.nan_to_num(boundary_probability, nan=0.0), 0.0, 1.0)
+                    boundary_map_url, boundary_data = _write_boundary_asset(boundary_probability, prediction_id)
+                    boundary_grid_size = SCENE_GRID_SIZE
+                    boundary_source = "trained"
+                    boundary_confidence = float(np.mean(np.maximum(boundary_probability, 1.0 - boundary_probability)))
                 if "semantic" in prediction:
                     if prediction["semantic"].shape[0] != len(SEMANTIC_CLASSES):
                         raise ModelUnavailableError("The model returned an invalid number of GAMUS semantic channels.")
-                    semantic_labels, semantic_grid = _prepare_semantic_labels(prediction["semantic"], SCENE_GRID_SIZE)
+                    semantic_labels, semantic_grid = _prepare_semantic_labels(prediction["semantic"], SCENE_GRID_SIZE, boundary_probability)
                     if semantic_labels.size and (semantic_labels.min() < 0 or semantic_labels.max() >= len(SEMANTIC_CLASSES)):
                         raise ModelUnavailableError("The model returned a semantic class outside GAMUS IDs 0..6.")
                     semantic_map_url, semantic_data = _write_semantic_asset(semantic_grid, prediction_id)
@@ -493,6 +528,7 @@ async def predict(
             max_height,
             semantic_data,
             semantic_grid_size,
+            boundary_data,
         )
         if input_format == "geotiff":
             try:
@@ -546,6 +582,7 @@ async def predict(
         max_height,
         semantic_data,
         semantic_grid_size,
+        boundary_data,
     )
     return {
         "id": prediction_id,
@@ -563,6 +600,11 @@ async def predict(
         "semanticData": semantic_data,
         "semanticMapUrl": semantic_map_url,
         "semanticSource": semantic_source,
+        "boundaryMapUrl": boundary_map_url,
+        "boundaryGridSize": boundary_grid_size,
+        "boundaryData": boundary_data,
+        "boundarySource": boundary_source,
+        "boundaryConfidence": boundary_confidence,
         "buildingRegions": building_regions,
         "buildingRegionSource": "semantic_head" if semantic_source in {"fixture", "trained"} else "height_threshold_fallback",
         "minHeight": min_height,

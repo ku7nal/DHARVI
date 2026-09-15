@@ -94,6 +94,8 @@ def clean_semantic_labels(
     *,
     minimum_building_area: int = 4,
     maximum_building_hole_area: int = 4,
+    boundary_confidence: np.ndarray | None = None,
+    boundary_threshold: float = 0.65,
 ) -> np.ndarray:
     """Remove isolated semantic noise and stabilize building regions."""
     values = np.asarray(labels)
@@ -101,12 +103,20 @@ def clean_semantic_labels(
         raise ValueError("labels must be a 2D semantic raster")
     cleaned = values.astype(np.uint8, copy=True)
     rows, columns = cleaned.shape
+    protected_boundary = np.zeros(values.shape, dtype=bool)
+    if boundary_confidence is not None:
+        boundary_values = np.asarray(boundary_confidence, dtype=np.float32)
+        if boundary_values.shape != values.shape:
+            raise ValueError("boundary_confidence must match labels")
+        protected_boundary = np.nan_to_num(boundary_values, nan=0.0) >= boundary_threshold
 
     # Correct isolated one-cell disagreements without blurring meaningful
     # linear classes such as roads. A strong local majority is required.
     majority = cleaned.copy()
     for row in range(rows):
         for column in range(columns):
+            if protected_boundary[row, column]:
+                continue
             row_start = max(0, row - 1)
             row_end = min(rows, row + 2)
             column_start = max(0, column - 1)
@@ -139,6 +149,8 @@ def clean_semantic_labels(
     # the raster edge are real exterior classes and must remain untouched.
     for component in _components(~building_mask, 1):
         if len(component) > max(0, maximum_building_hole_area):
+            continue
+        if any(protected_boundary[row, column] for row, column in component):
             continue
         if any(row in (0, rows - 1) or column in (0, columns - 1) for row, column in component):
             continue
@@ -249,15 +261,38 @@ def extract_building_footprints(
     *,
     minimum_area: int = 1,
     simplify_tolerance: float = 0.75,
+    boundary_confidence: np.ndarray | None = None,
+    boundary_threshold: float = 0.65,
 ) -> list[dict[str, object]]:
     """Return clean polygon regions in the viewer's normalized scene coordinates."""
     labels = np.asarray(semantic_labels)
     heights = np.asarray(height_map, dtype=np.float32)
     if labels.ndim != 2 or heights.shape != labels.shape:
         raise ValueError("semantic_labels and height_map must be aligned 2D arrays")
+    building_mask = labels == BUILDING_CLASS
+    if boundary_confidence is not None:
+        boundary_values = np.asarray(boundary_confidence, dtype=np.float32)
+        if boundary_values.shape != labels.shape:
+            raise ValueError("boundary_confidence must match semantic_labels")
+        high_confidence_boundary = np.nan_to_num(boundary_values, nan=0.0) >= boundary_threshold
+        up = np.zeros_like(building_mask)
+        down = np.zeros_like(building_mask)
+        left = np.zeros_like(building_mask)
+        right = np.zeros_like(building_mask)
+        up[1:] = building_mask[:-1]
+        down[:-1] = building_mask[1:]
+        left[:, 1:] = building_mask[:, :-1]
+        right[:, :-1] = building_mask[:, 1:]
+        interior_boundary = high_confidence_boundary & building_mask & ((left & right) | (up & down))
+        # A boundary head can be locally overconfident on roof texture. Only
+        # apply it as an instance split when it is a sparse seam; otherwise
+        # preserve the semantic mask and fall back safely to its footprints.
+        boundary_fraction = float(np.sum(interior_boundary)) / max(float(np.sum(building_mask)), 1.0)
+        if boundary_fraction <= 0.04:
+            building_mask = building_mask & ~interior_boundary
     rows, columns = labels.shape
     regions: list[dict[str, object]] = []
-    for cells in _components(labels == BUILDING_CLASS, minimum_area):
+    for cells in _components(building_mask, minimum_area):
         component = set(cells)
         loops = _boundary_loops(component)
         if not loops:
