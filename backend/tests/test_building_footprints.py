@@ -6,6 +6,54 @@ from app.building_footprints import clean_semantic_labels, extract_building_foot
 from app.semantic_contract import BUILDING_CLASS
 
 
+def signed_area(points: list[list[float]]) -> float:
+    return 0.5 * sum(
+        points[index][0] * points[(index + 1) % len(points)][1]
+        - points[(index + 1) % len(points)][0] * points[index][1]
+        for index in range(len(points))
+    )
+
+
+def edges_intersect(first: list[float], second: list[float], third: list[float], fourth: list[float]) -> bool:
+    def orientation(a: list[float], b: list[float], c: list[float]) -> float:
+        return (b[0] - a[0]) * (c[1] - a[1]) - (b[1] - a[1]) * (c[0] - a[0])
+
+    def on_segment(a: list[float], b: list[float], point: list[float]) -> bool:
+        return (
+            min(a[0], b[0]) - 1e-6 <= point[0] <= max(a[0], b[0]) + 1e-6
+            and min(a[1], b[1]) - 1e-6 <= point[1] <= max(a[1], b[1]) + 1e-6
+        )
+
+    orientations = (
+        orientation(first, second, third),
+        orientation(first, second, fourth),
+        orientation(third, fourth, first),
+        orientation(third, fourth, second),
+    )
+    if orientations[0] * orientations[1] < -1e-10 and orientations[2] * orientations[3] < -1e-10:
+        return True
+    return any(abs(value) <= 1e-10 and on_segment(*segment, point) for value, segment, point in (
+        (orientations[0], (first, second), third),
+        (orientations[1], (first, second), fourth),
+        (orientations[2], (third, fourth), first),
+        (orientations[3], (third, fourth), second),
+    ))
+
+
+def assert_simple_loop(test_case: unittest.TestCase, points: list[list[float]]) -> None:
+    test_case.assertGreaterEqual(len(points), 3)
+    test_case.assertGreater(abs(signed_area(points)), 1e-6)
+    for index in range(len(points)):
+        first = points[index]
+        second = points[(index + 1) % len(points)]
+        for offset in range(index + 1, len(points)):
+            if offset in {index - 1, index + 1, len(points) - 1}:
+                continue
+            test_case.assertFalse(
+                edges_intersect(first, second, points[offset], points[(offset + 1) % len(points)])
+            )
+
+
 class BuildingFootprintTests(unittest.TestCase):
     def test_semantic_cleanup_removes_tiny_buildings_and_fills_small_holes(self) -> None:
         labels = np.ones((12, 12), dtype=np.uint8)
@@ -142,6 +190,14 @@ class BuildingFootprintTests(unittest.TestCase):
         self.assertAlmostEqual(min(point[0] for point in footprint), -0.3)
         self.assertAlmostEqual(max(point[0] for point in footprint), 0.3)
 
+        assert_simple_loop(self, footprint)
+        for index, point in enumerate(footprint):
+            next_point = footprint[(index + 1) % len(footprint)]
+            self.assertTrue(abs(point[0] - next_point[0]) < 1e-6 or abs(point[1] - next_point[1]) < 1e-6)
+        self.assertEqual(region["holes"], [])
+        self.assertGreater(region["wallHeight"], 0)
+        self.assertIn(region["roofType"], {"flat", "gabled", "hipped", "dome"})
+
     def test_diagonal_outline_keeps_simplified_fallback(self) -> None:
         labels = np.zeros((16, 16), dtype=np.uint8)
         for row in range(3, 12):
@@ -154,6 +210,33 @@ class BuildingFootprintTests(unittest.TestCase):
         footprint = region["footprint"]
         self.assertGreaterEqual(len(footprint), 4)
         self.assertTrue(any(abs(footprint[index][0] - footprint[(index + 1) % len(footprint)][0]) > 1e-6 and abs(footprint[index][1] - footprint[(index + 1) % len(footprint)][1]) > 1e-6 for index in range(len(footprint))))
+        assert_simple_loop(self, footprint)
+
+    def test_l_shape_and_hole_contracts_preserve_simple_winding_and_extent(self) -> None:
+        labels = np.zeros((18, 18), dtype=np.uint8)
+        labels[3:13, 3:9] = BUILDING_CLASS
+        labels[9:13, 9:15] = BUILDING_CLASS
+        labels[5:7, 5:7] = 0
+        heights = labels.astype(np.float32) * 12
+
+        region = extract_building_footprints(labels, heights)[0]
+        footprint = region["footprint"]
+        assert_simple_loop(self, footprint)
+        self.assertGreaterEqual(len(footprint), 6)
+        self.assertAlmostEqual(min(point[0] for point in footprint), -1 / 3, delta=1e-5)
+        self.assertAlmostEqual(max(point[0] for point in footprint), 1 / 3, delta=1e-5)
+        self.assertAlmostEqual(min(point[1] for point in footprint), -1 / 3, delta=1e-5)
+        self.assertAlmostEqual(max(point[1] for point in footprint), 2 / 9, delta=1e-5)
+
+        self.assertEqual(len(region["holes"]), 1)
+        hole = region["holes"][0]
+        assert_simple_loop(self, hole)
+        outer_min_x = min(point[0] for point in footprint)
+        outer_max_x = max(point[0] for point in footprint)
+        outer_min_y = min(point[1] for point in footprint)
+        outer_max_y = max(point[1] for point in footprint)
+        self.assertTrue(all(outer_min_x < point[0] < outer_max_x and outer_min_y < point[1] < outer_max_y for point in hole))
+        self.assertEqual(signed_area(footprint) * signed_area(hole) < 0, True)
 
     def test_high_confidence_internal_boundary_splits_connected_buildings(self) -> None:
         labels = np.zeros((50, 60), dtype=np.uint8)
