@@ -66,6 +66,20 @@ class BuildingFootprintTests(unittest.TestCase):
 
         self.assertEqual(len(region["holes"]), 1)
         self.assertGreater(len(region["holes"][0]), 3)
+        self.assertTrue(all(-0.375 < point[0] < 0.375 and -0.375 < point[1] < 0.375 for point in region["holes"][0]))
+
+    def test_l_shaped_footprint_is_not_replaced_by_bounding_rectangle(self) -> None:
+        labels = np.zeros((16, 16), dtype=np.uint8)
+        labels[3:12, 3:8] = BUILDING_CLASS
+        labels[8:12, 8:13] = BUILDING_CLASS
+        heights = labels.astype(np.float32) * 12
+
+        region = extract_building_footprints(labels, heights)[0]
+
+        self.assertGreaterEqual(len(region["footprint"]), 6)
+        self.assertEqual(region["roofType"], "flat")
+        self.assertGreater(region["wallHeight"], 0)
+        self.assertAlmostEqual(region["height"], region["wallHeight"])
 
     def test_isolated_noise_is_removed_but_building_uses_surrounding_ground(self) -> None:
         labels = np.zeros((14, 14), dtype=np.uint8)

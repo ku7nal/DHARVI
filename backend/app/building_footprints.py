@@ -297,6 +297,30 @@ def _has_self_intersection(points: list[Point]) -> bool:
     return False
 
 
+def _point_inside_polygon(point: Point, polygon: list[Point]) -> bool:
+    inside = False
+    previous = polygon[-1]
+    for current in polygon:
+        if (current[1] > point[1]) != (previous[1] > point[1]):
+            boundary_x = (previous[0] - current[0]) * (point[1] - current[1]) / (previous[1] - current[1]) + current[0]
+            if point[0] < boundary_x:
+                inside = not inside
+        previous = current
+    return inside
+
+
+def _loops_intersect(first: list[Point], second: list[Point]) -> bool:
+    return any(
+        _segments_intersect(first[first_index], first[(first_index + 1) % len(first)], second[second_index], second[(second_index + 1) % len(second)])
+        for first_index in range(len(first))
+        for second_index in range(len(second))
+    )
+
+
+def _is_safe_hole(hole: list[Point], outer: list[Point], previous_holes: list[list[Point]]) -> bool:
+    return bool(hole) and not _has_self_intersection(hole) and _point_inside_polygon(hole[0], outer) and not _loops_intersect(hole, outer) and not any(_loops_intersect(hole, previous) for previous in previous_holes)
+
+
 def _orthogonalize_loop(points: list[list[float]]) -> list[list[float]]:
     original = [(float(point[0]), float(point[1])) for point in points]
     simplified = _remove_collinear(original)
@@ -414,12 +438,29 @@ def extract_building_footprints(
         loops = _boundary_loops(component)
         if not loops:
             continue
-        normalized_loops = [_orthogonalize_loop(_normalized_loop(loop, rows, columns, simplify_tolerance)) for loop in loops]
+        simplified_loops = [_normalized_loop(loop, rows, columns, simplify_tolerance) for loop in loops]
+        orthogonal_loops = [_orthogonalize_loop(loop) for loop in simplified_loops]
 
         def loop_area(loop: list[list[float]]) -> float:
             return abs(sum(loop[index][0] * loop[(index + 1) % len(loop)][1] - loop[(index + 1) % len(loop)][0] * loop[index][1] for index in range(len(loop))) / 2)
 
-        normalized_loops.sort(key=loop_area, reverse=True)
+        order = sorted(range(len(simplified_loops)), key=lambda index: loop_area(simplified_loops[index]), reverse=True)
+        simplified_loops = [simplified_loops[index] for index in order]
+        orthogonal_loops = [orthogonal_loops[index] for index in order]
+        outer_candidate = [(float(point[0]), float(point[1])) for point in orthogonal_loops[0]]
+        simplified_outer = [(float(point[0]), float(point[1])) for point in simplified_loops[0]]
+        outer = outer_candidate if len(outer_candidate) >= 3 and not _has_self_intersection(outer_candidate) else simplified_outer
+        normalized_loops = [
+            [[round(x, 6), round(y, 6)] for x, y in outer],
+        ]
+        accepted_holes: list[list[Point]] = []
+        for candidate, fallback in zip(orthogonal_loops[1:], simplified_loops[1:]):
+            candidate_points = [(float(point[0]), float(point[1])) for point in candidate]
+            fallback_points = [(float(point[0]), float(point[1])) for point in fallback]
+            chosen = candidate_points if _is_safe_hole(candidate_points, outer, accepted_holes) else fallback_points
+            if _is_safe_hole(chosen, outer, accepted_holes):
+                accepted_holes.append(chosen)
+                normalized_loops.append([[round(x, 6), round(y, 6)] for x, y in chosen])
         ground_values = _surrounding_values(component, heights, labels)
         if not ground_values.size:
             ground_values = _surrounding_values(component, heights)
