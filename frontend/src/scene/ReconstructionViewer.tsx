@@ -1,5 +1,5 @@
 import { Canvas } from "@react-three/fiber";
-import { ContactShadows, FlyControls, OrbitControls, PerformanceMonitor, PerspectiveCamera, useTexture } from "@react-three/drei";
+import { ContactShadows, FlyControls, OrbitControls, OrthographicCamera, PerformanceMonitor, PerspectiveCamera, useTexture } from "@react-three/drei";
 import { Suspense, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import * as THREE from "three";
 import type { BuildingRegion, SceneLayers, SemanticClass } from "../types";
@@ -300,24 +300,25 @@ function RgbSurface({ heightData, gridSize, maxHeight, exaggeration, inputImageU
   return <mesh geometry={geometry} position={[0, 0.015, 0]}><meshBasicMaterial map={texture} polygonOffset polygonOffsetFactor={-1} polygonOffsetUnits={-1} /></mesh>;
 }
 
-function SceneContents({ heightData, gridSize, maxHeight, exaggeration, cameraMode, layers, inputImageUrl, buildingRegions, semanticData, semanticGridSize, semanticClasses, onInspect }: ReconstructionViewerProps & { exaggeration: number; cameraMode: CameraMode; onInspect: (point: THREE.Vector3) => void }) {
+function SceneContents({ heightData, gridSize, maxHeight, exaggeration, cameraMode, presentationMode, layers, inputImageUrl, buildingRegions, semanticData, semanticGridSize, semanticClasses, onInspect }: ReconstructionViewerProps & { exaggeration: number; cameraMode: CameraMode; presentationMode: boolean; onInspect: (point: THREE.Vector3) => void }) {
   const cameraPosition: [number, number, number] = cameraMode === "isometric" ? [12, 11, 14] : cameraMode === "top" ? [0, 18, 0.01] : [8, 5, 8];
 
   return (
     <>
       <color attach="background" args={["#f0eff7"]} />
-      <ambientLight intensity={1.15} />
-      <directionalLight castShadow intensity={2.6} position={[7, 13, 8]} shadow-mapSize={[1024, 1024]} shadow-bias={-0.0002} />
-      <directionalLight intensity={0.38} position={[-8, 5, -4]} color="#d7d1ff" />
+      <ambientLight intensity={0.92} />
+      <hemisphereLight intensity={0.42} color="#fff8ed" groundColor="#8998b4" />
+      <directionalLight castShadow intensity={3.1} position={[7, 13, 8]} shadow-mapSize={[1024, 1024]} shadow-bias={-0.0002} shadow-camera-near={0.1} shadow-camera-far={40} />
+      <directionalLight intensity={0.48} position={[-8, 5, -4]} color="#d7d1ff" />
       {layers.city && <Suspense fallback={null}><StylizedCity heightData={heightData} gridSize={gridSize} maxHeight={maxHeight} exaggeration={exaggeration} buildingRegions={buildingRegions} wireframe={layers.wireframe} semanticData={semanticData} semanticGridSize={semanticGridSize} semanticClasses={semanticClasses} layers={layers} /></Suspense>}
-      {layers.city && <ContactShadows position={[0, 0.01, 0]} opacity={0.32} scale={20} blur={1.4} far={5} resolution={256} color="#555064" />}
+      {layers.city && <ContactShadows position={[0, 0.01, 0]} opacity={0.38} scale={20} blur={1.6} far={8} resolution={256} color="#555064" />}
       <HeightSurface heightData={heightData} gridSize={gridSize} maxHeight={maxHeight} exaggeration={exaggeration} layers={layers} inputImageUrl={inputImageUrl} />
       <SlopeSurface heightData={heightData} gridSize={gridSize} maxHeight={maxHeight} exaggeration={exaggeration} enabled={layers.slope} wireframe={layers.wireframe} />
       {layers.rgb && <Suspense fallback={null}><RgbSurface heightData={heightData} gridSize={gridSize} maxHeight={maxHeight} exaggeration={exaggeration} layers={layers} inputImageUrl={inputImageUrl} /></Suspense>}
-      <InspectionPlane heightData={heightData} gridSize={gridSize} maxHeight={maxHeight} onInspect={onInspect} />
-      <gridHelper args={[22, 22, "#d5d1e4", "#e5e3ed"]} position={[0, -0.04, 0]} />
+      {!presentationMode && <InspectionPlane heightData={heightData} gridSize={gridSize} maxHeight={maxHeight} onInspect={onInspect} />}
+      {!presentationMode && <gridHelper args={[22, 22, "#d5d1e4", "#e5e3ed"]} position={[0, -0.04, 0]} />}
       {cameraMode === "fly" ? <FlyControls makeDefault movementSpeed={8} rollSpeed={0.35} dragToLook /> : <OrbitControls makeDefault target={[0, 0.8, 0]} enableDamping dampingFactor={0.08} minDistance={5} maxDistance={28} maxPolarAngle={Math.PI * 0.48} />}
-      <PerspectiveCamera makeDefault position={cameraPosition} fov={36} near={0.1} far={100} />
+      {presentationMode ? <OrthographicCamera makeDefault position={cameraPosition} zoom={30} near={0.1} far={100} onUpdate={(camera) => camera.lookAt(0, 0.8, 0)} /> : <PerspectiveCamera makeDefault position={cameraPosition} fov={36} near={0.1} far={100} />}
     </>
   );
 }
@@ -328,23 +329,25 @@ function ReconstructionViewer({ heightData, gridSize, maxHeight, layers, inputIm
   const [resetKey, setResetKey] = useState(0);
   const [inspection, setInspection] = useState<{ height: number; slope: number } | null>(null);
   const [renderDpr, setRenderDpr] = useState(1.5);
+  const [presentationMode, setPresentationMode] = useState(true);
 
   return (
     <div className="reconstruction-viewer">
-      <Canvas key={`${cameraMode}-${resetKey}`} shadows dpr={[1, renderDpr]} camera={{ position: [12, 11, 14], fov: 36 }}>
+      <Canvas key={`${cameraMode}-${presentationMode}-${resetKey}`} shadows dpr={[1, renderDpr]} gl={{ antialias: true, toneMapping: THREE.ACESFilmicToneMapping, toneMappingExposure: 1.08 }} camera={{ position: [12, 11, 14], fov: 36 }}>
         <PerformanceMonitor onDecline={() => setRenderDpr(1)} onIncline={() => setRenderDpr(1.5)} />
-        <SceneContents heightData={heightData} gridSize={gridSize} maxHeight={maxHeight} exaggeration={exaggeration} cameraMode={cameraMode} layers={layers} inputImageUrl={inputImageUrl} buildingRegions={buildingRegions} semanticData={semanticData} semanticGridSize={semanticGridSize} semanticClasses={semanticClasses} onInspect={(point) => setInspection(inspectHeight(heightData, gridSize, maxHeight, exaggeration, point))} />
+        <SceneContents heightData={heightData} gridSize={gridSize} maxHeight={maxHeight} exaggeration={exaggeration} cameraMode={cameraMode} presentationMode={presentationMode} layers={layers} inputImageUrl={inputImageUrl} buildingRegions={buildingRegions} semanticData={semanticData} semanticGridSize={semanticGridSize} semanticClasses={semanticClasses} onInspect={(point) => setInspection(inspectHeight(heightData, gridSize, maxHeight, exaggeration, point))} />
       </Canvas>
       <div className="scene-toolbar" aria-label="Scene controls">
         <button className={cameraMode === "isometric" ? "selected" : ""} onClick={() => setCameraMode("isometric")}>Isometric</button>
         <button className={cameraMode === "top" ? "selected" : ""} onClick={() => setCameraMode("top")}>Top</button>
         <button className={cameraMode === "fly" ? "selected" : ""} onClick={() => setCameraMode("fly")}>Fly</button>
+        <button className={presentationMode ? "selected" : ""} aria-pressed={presentationMode} onClick={() => setPresentationMode((value) => !value)}>{presentationMode ? "Presentation" : "Debug view"}</button>
         <button onClick={() => setResetKey((key) => key + 1)}>Reset view</button>
         <label className="exaggeration-control">
           <span>Height {exaggeration.toFixed(1)}×</span>
           <input aria-label="Height exaggeration" type="range" min="1" max="3" step="0.1" value={exaggeration} onChange={(event) => setExaggeration(Number(event.target.value))} />
         </label>
-        <span className="scene-quality-label">{inspection ? `Height ${inspection.height.toFixed(1)} m · slope ${inspection.slope.toFixed(1)}°` : `Move over terrain to inspect height and slope · DPR ${renderDpr.toFixed(1)}`}</span>
+        <span className="scene-quality-label">{presentationMode ? `Presentation render · DPR ${renderDpr.toFixed(1)}` : inspection ? `Height ${inspection.height.toFixed(1)} m · slope ${inspection.slope.toFixed(1)}°` : `Move over terrain to inspect height and slope · DPR ${renderDpr.toFixed(1)}`}</span>
       </div>
     </div>
   );
