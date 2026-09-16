@@ -4,12 +4,12 @@
 
 **Blocked by:** 01 — Add draggable elevation pin to the reconstruction viewer
 
-**Status:** ready-for-agent
+**Status:** ready-for-human
 
-- [ ] The screen-space pin stays aligned with its sampled terrain point while the camera is moved or changed between supported view modes.
-- [ ] The pin resets cleanly when a new reconstruction is loaded and does not appear before a point has been placed.
-- [ ] Pin placement works in presentation and debug modes without breaking existing scene inspection or route workflows.
-- [ ] The control rail and pin callout remain usable at narrow viewport widths and with touch pointers.
-- [ ] The pin control exposes an understandable accessible name, pressed state, focus styling, and Escape behavior.
-- [ ] Regression checks cover placement, value labeling, mode conflicts, camera movement, and responsive interaction.
-- [ ] Frontend typecheck, production build, and relevant scene checks pass.
+- [x] The screen-space pin stays aligned with its sampled terrain point while the camera is moved or changed between supported view modes.
+- [x] The pin resets cleanly when a new reconstruction is loaded and does not appear before a point has been placed.
+- [x] Pin placement works in presentation and debug modes without breaking existing scene inspection or route workflows.
+- [x] The control rail and pin callout remain usable at narrow viewport widths and with touch pointers.
+- [x] The pin control exposes an understandable accessible name, pressed state, focus styling, and Escape behavior.
+- [x] Regression checks cover placement, value labeling, mode conflicts, camera movement, and responsive interaction.
+- [x] Frontend typecheck, production build, and relevant scene checks pass.

@@ -12,6 +12,7 @@
     "test:terrain": "node --experimental-strip-types scripts/semantic-terrain-check.ts",
     "test:quality": "node --experimental-strip-types scripts/scene-quality-check.ts",
     "test:route": "node --experimental-strip-types scripts/route-mode-check.ts",
+    "test:elevation-pin": "node --experimental-strip-types scripts/elevation-pin-check.ts",
     "qa:presentation": "bash scripts/presentation-quality-check.sh"
   },
   "dependencies": {

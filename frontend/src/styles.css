@@ -108,6 +108,7 @@ h1 { margin-bottom: 0; font-family: "Inter Tight", sans-serif; font-size: clamp(
 .result-body { min-height: 470px; display: grid; grid-template-columns: minmax(0, 1fr) 284px; flex: 1; }
 .reconstruction-viewer { position: relative; flex: 1; min-height: 470px; overflow: hidden; background: #f0eff7; }
 .reconstruction-viewer canvas { display: block; }
+.reconstruction-viewer canvas { touch-action: none; }
 .scene-toolbar { position: absolute; right: 18px; bottom: 18px; left: 18px; display: flex; align-items: center; gap: 6px; padding: 7px; border: 1px solid rgba(255,255,255,.88); border-radius: 12px; background: rgba(255,255,255,.82); box-shadow: 0 8px 25px rgba(70, 61, 111, .1); backdrop-filter: blur(12px); }
 .scene-toolbar button { padding: 8px 11px; border: 0; border-radius: 8px; color: #858291; background: transparent; cursor: pointer; font-size: 11px; }
 .scene-toolbar button:hover, .scene-toolbar button.selected { color: #5a43c8; background: #f0edff; }
@@ -550,6 +551,10 @@ h2 { letter-spacing: -.025em; }
 }
 .scene-control-button:active { transform: scale(.94); }
 .scene-control-icon { width: 21px; height: 21px; }
+.scene-control-button:focus-visible {
+  outline: 2px solid #91a1ff;
+  outline-offset: 3px;
+}
 
 .elevation-pin {
   position: relative;
@@ -593,6 +598,10 @@ h2 { letter-spacing: -.025em; }
   backdrop-filter: blur(10px);
   font-size: 10px;
   white-space: nowrap;
+}
+.elevation-pin-callout.align-right {
+  right: 13px;
+  left: auto;
 }
 .elevation-pin-callout strong { color: #263fbd; font-size: 11px; font-weight: 700; letter-spacing: -.1px; }
 

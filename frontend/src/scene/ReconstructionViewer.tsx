@@ -8,12 +8,13 @@ import { getBuildingLayout } from "../sceneGeometry";
 import { expandDebrisZones, routePointToSceneCell } from "../routePlanner";
 import { MAX_TREE_INSTANCES, getBuildingDetailLevel, validateSceneQuality } from "../sceneQuality";
 import { BUILDING, SEMANTIC_LAYER_DEFINITIONS, TREE, createSemanticSurfaceGeometry, getSemanticClassColor, getVisibleSemanticClassIds, prepareSemanticTerrain } from "../semanticTerrain";
+import { clampPinPoint, formatElevationReadout, getPinHeight, type ElevationReference } from "./elevationPin";
 
 type ReconstructionViewerProps = {
   heightData: number[];
   gridSize: number;
   maxHeight: number;
-  heightReference?: "relative" | "absolute";
+  heightReference?: ElevationReference;
   layers: SceneLayers;
   inputImageUrl: string;
   buildingRegions?: BuildingRegion[];
@@ -261,10 +262,10 @@ function gridPointToScene(point: RoutePoint, gridSize: number, heightData: numbe
 }
 
 function pointToGrid(point: THREE.Vector3, gridSize: number): RoutePoint {
-  return {
-    column: Math.max(0, Math.min(gridSize - 1, Math.round((point.x / WORLD_WIDTH + 0.5) * (gridSize - 1)))),
-    row: Math.max(0, Math.min(gridSize - 1, Math.round((point.z / WORLD_DEPTH + 0.5) * (gridSize - 1)))),
-  };
+  return clampPinPoint({
+    column: Math.round((point.x / WORLD_WIDTH + 0.5) * (gridSize - 1)),
+    row: Math.round((point.z / WORLD_DEPTH + 0.5) * (gridSize - 1)),
+  }, gridSize);
 }
 
 function InspectionPlane({ gridSize, onInspect, onSelect, pinPlacementActive, onPinDragStart, onPinDragMove, onPinDragEnd }: { heightData: number[]; gridSize: number; maxHeight: number; onInspect: (point: THREE.Vector3) => void; onSelect?: (point: RoutePoint) => void; pinPlacementActive: boolean; onPinDragStart: (point: THREE.Vector3) => void; onPinDragMove: (point: THREE.Vector3) => void; onPinDragEnd: () => void }) {
@@ -272,21 +273,27 @@ function InspectionPlane({ gridSize, onInspect, onSelect, pinPlacementActive, on
     if (pinPlacementActive) onPinDragMove(event.point);
     else onInspect(event.point);
   }} onPointerDown={(event) => {
-    if (pinPlacementActive) onPinDragStart(event.point);
+    if (pinPlacementActive) {
+      (event.target as (EventTarget & { setPointerCapture?: (pointerId: number) => void }) | null)?.setPointerCapture?.(event.pointerId);
+      onPinDragStart(event.point);
+    }
     else onSelect?.(pointToGrid(event.point, gridSize));
-  }} onPointerUp={() => pinPlacementActive && onPinDragEnd()}>
+  }} onPointerUp={(event) => {
+    (event.target as (EventTarget & { releasePointerCapture?: (pointerId: number) => void }) | null)?.releasePointerCapture?.(event.pointerId);
+    if (pinPlacementActive) onPinDragEnd();
+  }} onPointerCancel={() => pinPlacementActive && onPinDragEnd()}>
     <planeGeometry args={[WORLD_WIDTH, WORLD_DEPTH]} />
     <meshBasicMaterial transparent opacity={0} depthWrite={false} />
   </mesh>;
 }
 
-function ElevationPin({ point, height, heightReference }: { point: THREE.Vector3; height: number; heightReference: "relative" | "absolute" }) {
-  const label = heightReference === "absolute" ? "Elevation" : "Estimated height";
+function ElevationPin({ point, height, heightReference, alignRight }: { point: THREE.Vector3; height: number; heightReference: ElevationReference; alignRight: boolean }) {
+  const readout = formatElevationReadout(height, heightReference);
   return <Html position={point} center zIndexRange={[20, 30]}>
-    <div className="elevation-pin" aria-label={`${label} ${height.toFixed(1)} meters`}>
+    <div className="elevation-pin" aria-label={readout.replace(" · ", " ")}>
       <span className="elevation-pin-marker" />
-      <div className="elevation-pin-callout">
-        <strong>{label} · {height.toFixed(1)} m</strong>
+      <div className={`elevation-pin-callout ${alignRight ? "align-right" : ""}`}>
+        <strong>{readout}</strong>
       </div>
     </div>
   </Html>;
@@ -419,7 +426,7 @@ function RgbSurface({ heightData, gridSize, maxHeight, exaggeration, inputImageU
 
 function SceneContents({ heightData, gridSize, maxHeight, exaggeration, cameraMode, presentationMode, layers, inputImageUrl, buildingRegions, semanticData, semanticGridSize, semanticClasses, onInspect, route, routePoints, debrisZones, routeSelectionMode, onRoutePointSelect, heightReference = "relative", pinPlacementActive = false, pinDragging = false, pinPoint, onPinDragStart, onPinDragMove, onPinDragEnd }: ReconstructionViewerProps & { exaggeration: number; cameraMode: CameraMode; presentationMode: boolean; onInspect: (point: THREE.Vector3) => void; pinPoint: RoutePoint | null; pinDragging: boolean; onPinDragStart: (point: THREE.Vector3) => void; onPinDragMove: (point: THREE.Vector3) => void; onPinDragEnd: () => void }) {
   const cameraPosition: [number, number, number] = cameraMode === "isometric" ? [12, 11, 14] : cameraMode === "top" ? [0, 18, 0.01] : [8, 5, 8];
-  const pinHeight = pinPoint ? heightData[pinPoint.row * gridSize + pinPoint.column] ?? 0 : 0;
+  const pinHeight = pinPoint ? getPinHeight(pinPoint, heightData, gridSize) : 0;
   const pinScenePoint = pinPoint ? gridPointToScene(pinPoint, gridSize, heightData, maxHeight, exaggeration) : null;
 
   return (
@@ -436,7 +443,7 @@ function SceneContents({ heightData, gridSize, maxHeight, exaggeration, cameraMo
       {layers.rgb && <Suspense fallback={null}><RgbSurface heightData={heightData} gridSize={gridSize} maxHeight={maxHeight} exaggeration={exaggeration} layers={layers} inputImageUrl={inputImageUrl} /></Suspense>}
       <RouteOverlay route={route} routePoints={routePoints} debrisZones={debrisZones} heightData={heightData} gridSize={gridSize} maxHeight={maxHeight} />
       {(!presentationMode || routeSelectionMode !== "idle" || pinPlacementActive) && <InspectionPlane heightData={heightData} gridSize={gridSize} maxHeight={maxHeight} onInspect={onInspect} onSelect={routeSelectionMode === "idle" && !pinPlacementActive ? onRoutePointSelect : undefined} pinPlacementActive={pinPlacementActive} onPinDragStart={onPinDragStart} onPinDragMove={onPinDragMove} onPinDragEnd={onPinDragEnd} />}
-      {pinScenePoint && <ElevationPin point={pinScenePoint} height={pinHeight} heightReference={heightReference} />}
+      {pinScenePoint && <ElevationPin point={pinScenePoint} height={pinHeight} heightReference={heightReference} alignRight={Boolean(pinPoint && pinPoint.column > gridSize * 0.68)} />}
       {!presentationMode && <gridHelper args={[22, 22, "#d5d1e4", "#e5e3ed"]} position={[0, -0.04, 0]} />}
       {(!pinDragging || !pinPlacementActive) && (cameraMode === "fly" ? <FlyControls makeDefault movementSpeed={8} rollSpeed={0.35} dragToLook /> : <OrbitControls makeDefault target={[0, 0.8, 0]} enableDamping dampingFactor={0.08} minDistance={5} maxDistance={28} maxPolarAngle={Math.PI * 0.48} />)}
       {presentationMode ? <OrthographicCamera makeDefault position={cameraPosition} zoom={30} near={0.1} far={100} onUpdate={(camera) => camera.lookAt(0, 0.8, 0)} /> : <PerspectiveCamera makeDefault position={cameraPosition} fov={36} near={0.1} far={100} />}
@@ -481,7 +488,10 @@ function ReconstructionViewer({ heightData, gridSize, maxHeight, heightReference
 
   useEffect(() => {
     function handleKeyDown(event: KeyboardEvent) {
-      if (event.key === "Escape" && pinPlacementActive) onPinPlacementActiveChange?.(false);
+      if (event.key === "Escape" && pinPlacementActive) {
+        setPinDragging(false);
+        onPinPlacementActiveChange?.(false);
+      }
     }
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
