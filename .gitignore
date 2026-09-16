@@ -5,6 +5,11 @@ backend/**/__pycache__/
 backend/media/
 backend/.rasterio/
 astra.pth
+*.pth
+dinosaur.pth
+kaggle/
+scripts/
+docs/
 *.py[cod]
 .DS_Store
 # Playwright CLI output (may contain credentials)
