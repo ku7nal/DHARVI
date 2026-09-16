@@ -505,7 +505,7 @@ h2 { letter-spacing: -.025em; }
 /* Compact floating scene controls: modeled after the reference map's lower-right tool rail. */
 .scene-controls {
   position: absolute;
-  left: 24px;
+  right: 24px;
   bottom: 24px;
   z-index: 6;
   display: flex;
@@ -606,7 +606,7 @@ h2 { letter-spacing: -.025em; }
 .elevation-pin-callout strong { color: #263fbd; font-size: 11px; font-weight: 700; letter-spacing: -.1px; }
 
 @media (max-width: 480px) {
-  .scene-controls { left: 16px; bottom: 16px; gap: 7px; }
+  .scene-controls { right: 16px; bottom: 16px; gap: 7px; }
   .scene-control-button, .scene-control-group { width: 40px; }
   .scene-control-button { height: 40px; }
 }
