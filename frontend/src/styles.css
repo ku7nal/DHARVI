@@ -504,7 +504,7 @@ h2 { letter-spacing: -.025em; }
 /* Compact floating scene controls: modeled after the reference map's lower-right tool rail. */
 .scene-controls {
   position: absolute;
-  right: 24px;
+  left: 24px;
   bottom: 24px;
   z-index: 6;
   display: flex;
@@ -551,8 +551,53 @@ h2 { letter-spacing: -.025em; }
 .scene-control-button:active { transform: scale(.94); }
 .scene-control-icon { width: 21px; height: 21px; }
 
+.elevation-pin {
+  position: relative;
+  width: 1px;
+  height: 1px;
+  pointer-events: none;
+}
+.elevation-pin-marker {
+  position: absolute;
+  left: -9px;
+  top: -9px;
+  width: 18px;
+  height: 18px;
+  border: 3px solid #fff;
+  border-radius: 50% 50% 50% 2px;
+  background: #263fbd;
+  box-shadow: 0 4px 10px rgba(26, 40, 109, .35);
+  transform: rotate(-45deg);
+}
+.elevation-pin-marker::after {
+  content: "";
+  position: absolute;
+  inset: 5px;
+  border-radius: 50%;
+  background: #fff;
+}
+.elevation-pin-callout {
+  position: absolute;
+  left: 13px;
+  bottom: 13px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 106px;
+  padding: 8px 10px;
+  border: 1px solid rgba(255,255,255,.85);
+  border-radius: 9px;
+  color: #26313d;
+  background: rgba(255,255,255,.94);
+  box-shadow: 0 8px 20px rgba(35, 46, 67, .2);
+  backdrop-filter: blur(10px);
+  font-size: 10px;
+  white-space: nowrap;
+}
+.elevation-pin-callout strong { color: #263fbd; font-size: 11px; font-weight: 700; letter-spacing: -.1px; }
+
 @media (max-width: 480px) {
-  .scene-controls { right: 16px; bottom: 16px; gap: 7px; }
+  .scene-controls { left: 16px; bottom: 16px; gap: 7px; }
   .scene-control-button, .scene-control-group { width: 40px; }
   .scene-control-button { height: 40px; }
 }

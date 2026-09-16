@@ -49,6 +49,7 @@ function App() {
   const [route, setRoute] = useState<RouteResult | null>(null);
   const [routePoints, setRoutePoints] = useState<RoutePoints>({});
   const [routeSelectionMode, setRouteSelectionMode] = useState<"idle" | "start" | "destination" | "debris">("idle");
+  const [pinPlacementActive, setPinPlacementActive] = useState(false);
   const [routeState, setRouteState] = useState<"idle" | "loading" | "ready" | "error">("idle");
   const [routeError, setRouteError] = useState<string | null>(null);
   const [routeNotice, setRouteNotice] = useState<string | null>(null);
@@ -106,6 +107,7 @@ function App() {
       setRoute(null);
       setRoutePoints({});
       setRouteSelectionMode("idle");
+      setPinPlacementActive(false);
       setRouteState("idle");
       setRouteError(null);
       setRouteNotice(null);
@@ -154,6 +156,11 @@ function App() {
     }
     setRouteSelectionMode("idle");
     setRouteState("idle");
+  }
+
+  function changeRouteSelectionMode(mode: "idle" | "start" | "destination" | "debris") {
+    setRouteSelectionMode(mode);
+    if (mode !== "idle") setPinPlacementActive(false);
   }
 
   async function requestRoute(points = routePoints, sourcePrediction = prediction, zones = debrisZones, waterAvoidance = avoidWater, notice?: string, selectedProfile = routeProfile) {
@@ -321,6 +328,7 @@ function App() {
                     heightData={prediction.heightData}
                     gridSize={prediction.gridSize}
                     maxHeight={prediction.maxHeight}
+                    heightReference={prediction.heightReference}
                     buildingRegions={prediction.buildingRegions}
                     semanticData={prediction.semanticData}
                     semanticGridSize={prediction.semanticGridSize}
@@ -329,6 +337,11 @@ function App() {
                     routePoints={routePoints}
                     routeSelectionMode={routeSelectionMode}
                     onRoutePointSelect={selectRoutePoint}
+                    pinPlacementActive={pinPlacementActive}
+                    onPinPlacementActiveChange={(active) => {
+                      setPinPlacementActive(active);
+                      if (active) setRouteSelectionMode("idle");
+                    }}
                     debrisZones={debrisZones}
                     layers={layers}
                     inputImageUrl={`http://localhost:8000${prediction.inputImageUrl}`}
@@ -347,7 +360,7 @@ function App() {
                       routeNotice={routeNotice}
                       avoidWater={avoidWater}
                       debrisZones={debrisZones}
-                      onRouteModeChange={setRouteSelectionMode}
+                      onRouteModeChange={changeRouteSelectionMode}
                       onToggleWater={toggleWaterAvoidance}
                       onClearDebris={clearDebrisZones}
                       onRemoveDebris={removeDebrisZone}

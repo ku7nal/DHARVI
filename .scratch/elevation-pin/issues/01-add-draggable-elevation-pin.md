@@ -4,12 +4,12 @@
 
 **Blocked by:** None — can start immediately.
 
-**Status:** ready-for-agent
+**Status:** ready-for-human
 
-- [ ] The bottom-left scene-control rail contains an accessible pin tool with active and inactive states.
-- [ ] Activating the tool enables click-drag placement over the render and temporarily suspends camera dragging.
-- [ ] The selected point is clamped to the available height grid and samples the raw `heightData` value without visual exaggeration.
-- [ ] The pin remains at the last selected point after release, can be repositioned while the tool remains active, and can be exited with the control or Escape.
-- [ ] The attached callout displays `Elevation · X.X m` for absolute calibrated results and `Estimated height · X.X m` for relative nDSM results.
-- [ ] Pin placement and route-point selection cannot be active simultaneously.
-- [ ] Frontend typecheck and production build pass.
+- [x] The bottom-left scene-control rail contains an accessible pin tool with active and inactive states.
+- [x] Activating the tool enables click-drag placement over the render and temporarily suspends camera dragging.
+- [x] The selected point is clamped to the available height grid and samples the raw `heightData` value without visual exaggeration.
+- [x] The pin remains at the last selected point after release, can be repositioned while the tool remains active, and can be exited with the control or Escape.
+- [x] The attached callout displays `Elevation · X.X m` for absolute calibrated results and `Estimated height · X.X m` for relative nDSM results.
+- [x] Pin placement and route-point selection cannot be active simultaneously.
+- [x] Frontend typecheck and production build pass.
