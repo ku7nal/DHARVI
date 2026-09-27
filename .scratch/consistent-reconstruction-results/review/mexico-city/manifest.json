@@ -1,0 +1,31 @@
+{
+  "name": "mexico-city",
+  "source": "input.png",
+  "width": 1754,
+  "height": 1240,
+  "sceneGridSize": 256,
+  "minHeightMeters": 3.000106119088741e-07,
+  "maxHeightMeters": 9.073716163635254,
+  "buildingRegionCount": 29,
+  "buildingPixelFraction": 0.0236053466796875,
+  "semanticClassFractions": {
+    "others": 0.8339080810546875,
+    "ground": 0.0002288818359375,
+    "low_vegetation": 0.0302734375,
+    "building": 0.0236053466796875,
+    "water": 0.0,
+    "road": 0.07049560546875,
+    "tree": 0.0414886474609375
+  },
+  "evidence": "visual inspection only; no aligned reference raster supplied",
+  "artifacts": [
+    "input.png",
+    "height-prediction.png",
+    "semantic-full.png",
+    "semantic-scene-grid.png",
+    "semantic-scene-grid-native.png",
+    "building-footprints.png",
+    "scene.png"
+  ],
+  "finding": "Semantic labels are the first clear divergence after the height preview: 83.4% of scene-grid pixels are classified as others and only 2.4% as buildings, despite some rooftop structure remaining in the height prediction."
+}

@@ -1,0 +1,31 @@
+{
+  "name": "new-york",
+  "source": "input.png",
+  "width": 2048,
+  "height": 1447,
+  "sceneGridSize": 256,
+  "minHeightMeters": 4.080287396845961e-07,
+  "maxHeightMeters": 26.21963882446289,
+  "buildingRegionCount": 139,
+  "buildingPixelFraction": 0.3502197265625,
+  "semanticClassFractions": {
+    "others": 0.3405303955078125,
+    "ground": 0.0043182373046875,
+    "low_vegetation": 0.0549163818359375,
+    "building": 0.3502197265625,
+    "water": 0.093292236328125,
+    "road": 0.12872314453125,
+    "tree": 0.0279998779296875
+  },
+  "evidence": "visual inspection only; no aligned reference raster supplied",
+  "artifacts": [
+    "input.png",
+    "height-prediction.png",
+    "semantic-full.png",
+    "semantic-scene-grid.png",
+    "semantic-scene-grid-native.png",
+    "building-footprints.png",
+    "scene.png"
+  ],
+  "finding": "Semantic labels are the first clear divergence after the height preview: water and broad structure remain visible, but building labels fragment and vegetation appears inside developed blocks."
+}

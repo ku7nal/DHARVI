@@ -1,0 +1,31 @@
+{
+  "name": "zaalima-clear-buildings",
+  "source": "zaalima.jpeg",
+  "width": 1024,
+  "height": 1024,
+  "sceneGridSize": 256,
+  "minHeightMeters": 2.95461795758456e-05,
+  "maxHeightMeters": 33.93013000488281,
+  "buildingRegionCount": 15,
+  "buildingPixelFraction": 0.1916656494140625,
+  "semanticClassFractions": {
+    "others": 7.62939453125e-05,
+    "ground": 0.093475341796875,
+    "low_vegetation": 0.06134033203125,
+    "building": 0.1916656494140625,
+    "water": 0.0,
+    "road": 0.3768768310546875,
+    "tree": 0.2765655517578125
+  },
+  "evidence": "visual inspection only; no aligned reference raster supplied",
+  "artifacts": [
+    "input.png",
+    "height-prediction.png",
+    "semantic-full.png",
+    "semantic-scene-grid.png",
+    "semantic-scene-grid-native.png",
+    "building-footprints.png",
+    "scene.png"
+  ],
+  "finding": "The height prediction is the first visible divergence: large roof masses remain identifiable, but roof edges and smaller structures are smoothed before semantic labeling and extrusion."
+}
