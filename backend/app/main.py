@@ -267,8 +267,22 @@ def _write_model_prediction_assets(
     else:
         Image.fromarray(preview).save(height_path, format="PNG")
 
-    grid = Image.fromarray(clean_height_map).resize((SCENE_GRID_SIZE, SCENE_GRID_SIZE), Image.Resampling.BILINEAR)
-    scene_heights = np.array(grid, dtype=np.float32, copy=True)
+    if valid_mask is None:
+        grid = Image.fromarray(clean_height_map).resize((SCENE_GRID_SIZE, SCENE_GRID_SIZE), Image.Resampling.BILINEAR)
+        scene_heights = np.array(grid, dtype=np.float32, copy=True)
+    else:
+        weighted_heights = np.where(valid_mask, clean_height_map, 0.0)
+        resized_heights = np.asarray(
+            Image.fromarray(weighted_heights).resize((SCENE_GRID_SIZE, SCENE_GRID_SIZE), Image.Resampling.BILINEAR),
+            dtype=np.float32,
+        )
+        coverage = np.asarray(
+            Image.fromarray(np.asarray(valid_mask, dtype=np.float32)).resize(
+                (SCENE_GRID_SIZE, SCENE_GRID_SIZE), Image.Resampling.BILINEAR,
+            ),
+            dtype=np.float32,
+        )
+        scene_heights = np.divide(resized_heights, coverage, out=np.zeros_like(resized_heights), where=coverage > 1e-6)
     validity_data = None if mask_grid is None or np.all(mask_grid) else mask_grid.ravel().tolist()
     if mask_grid is not None:
         scene_heights[~mask_grid] = 0.0
@@ -614,8 +628,6 @@ async def predict(
                     raise ModelUnavailableError("The model returned an invalid height map.")
                 height_map = np.asarray(prediction["height"], dtype=np.float32)
                 expected_shape = (image.height, image.width)
-                if height_map.shape != expected_shape or not np.all(np.isfinite(height_map)):
-                    raise ModelUnavailableError("The model returned an invalid height map that is misaligned or contains non-finite values.")
                 semantic_logits = prediction.get("semantic")
                 if semantic_logits is not None:
                     semantic_logits = np.asarray(semantic_logits, dtype=np.float32)
@@ -630,11 +642,6 @@ async def predict(
                     boundary_probability = np.clip(boundary_output, 0.0, 1.0).copy()
                     if valid_mask is not None:
                         boundary_probability[~valid_mask] = 0.0
-                    boundary_map_url, boundary_data = _write_boundary_asset(boundary_probability, prediction_id)
-                    boundary_grid_size = SCENE_GRID_SIZE
-                    boundary_source = "trained"
-                    confidence_values = boundary_probability if valid_mask is None else boundary_probability[valid_mask]
-                    boundary_confidence = float(np.mean(np.maximum(confidence_values, 1.0 - confidence_values)))
                 if semantic_logits is not None:
                     semantic_labels, semantic_grid = _prepare_semantic_labels(semantic_logits, SCENE_GRID_SIZE, boundary_probability)
                     if valid_mask is not None:
@@ -643,17 +650,25 @@ async def predict(
                         semantic_grid[~semantic_grid_mask] = 0
                     if semantic_labels.size and (semantic_labels.min() < 0 or semantic_labels.max() >= len(SEMANTIC_CLASSES)):
                         raise ModelUnavailableError("The model returned a semantic class outside GAMUS IDs 0..6.")
-                    semantic_map_url, semantic_data = _write_semantic_asset(semantic_grid, prediction_id)
+                    semantic_data = [int(value) for value in semantic_grid.ravel()]
                     semantic_grid_size = SCENE_GRID_SIZE
                     semantic_source = "trained"
             else:
                 height_map = np.asarray(model_service.predict(image), dtype=np.float32)
-                if height_map.shape != (image.height, image.width) or not np.all(np.isfinite(height_map)):
-                    raise ModelUnavailableError("The model returned an invalid height map that is misaligned or contains non-finite values.")
+            if height_map.shape != (image.height, image.width) or not np.all(np.isfinite(height_map)):
+                raise ModelUnavailableError("The model returned an invalid height map that is misaligned or contains non-finite values.")
         except ModelUnavailableError as error:
             raise HTTPException(status_code=503, detail=str(error)) from error
         except (TypeError, ValueError, KeyError) as error:
             raise HTTPException(status_code=503, detail="The model returned an invalid prediction.") from error
+        if boundary_probability is not None:
+            boundary_map_url, boundary_data = _write_boundary_asset(boundary_probability, prediction_id)
+            boundary_grid_size = SCENE_GRID_SIZE
+            boundary_source = "trained"
+            confidence_values = boundary_probability if valid_mask is None else boundary_probability[valid_mask]
+            boundary_confidence = float(np.mean(np.maximum(confidence_values, 1.0 - confidence_values)))
+        if semantic_labels is not None:
+            semantic_map_url, semantic_data = _write_semantic_asset(semantic_grid, prediction_id)
         input_url, height_url, height_data, min_height, max_height, validity_data = _write_model_prediction_assets(
             image,
             height_map,

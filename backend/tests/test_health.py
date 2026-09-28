@@ -7,7 +7,7 @@ import numpy as np
 from PIL import Image
 import rasterio
 from rasterio.io import MemoryFile
-from rasterio.transform import from_origin
+from rasterio.transform import Affine, from_origin
 
 from app import main as main_module
 from app.main import app
@@ -375,6 +375,7 @@ class FixturePredictionTests(unittest.TestCase):
         self.assertFalse(result["validityData"][0])
         self.assertTrue(result["validityData"][-1])
         self.assertEqual(result["heightData"][0], 0)
+        self.assertAlmostEqual(result["heightData"][64], 12.0, places=3)
         self.assertEqual(result["semanticData"][0], 0)
         self.assertEqual(result["semanticData"][-1], 1)
         with Image.open(BytesIO(self.client.get(result["inputImageUrl"]).content)) as preview:
@@ -408,6 +409,29 @@ class FixturePredictionTests(unittest.TestCase):
         self.assertEqual(response.status_code, 400)
         self.assertIn("no valid pixels", response.json()["detail"])
 
+    def test_geotiff_with_singular_transform_is_rejected(self) -> None:
+        with NamedTemporaryFile(suffix=".tif") as raster_file:
+            with rasterio.open(
+                raster_file.name,
+                "w",
+                driver="GTiff",
+                width=4,
+                height=4,
+                count=3,
+                dtype="uint8",
+                crs="EPSG:4326",
+                transform=Affine(1, 0, 72, 0, 0, 19),
+            ) as dataset:
+                dataset.write(np.full((3, 4, 4), 120, dtype=np.uint8))
+            raster_file.seek(0)
+            response = self.client.post(
+                "/api/predict",
+                files={"file": ("singular.tif", raster_file.read(), "image/tiff")},
+            )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("invalid spatial metadata", response.json()["detail"])
+
     def test_model_output_must_be_aligned_and_finite(self) -> None:
         original_model_service = main_module.model_service
         try:
@@ -424,6 +448,17 @@ class FixturePredictionTests(unittest.TestCase):
                 )
                 self.assertEqual(response.status_code, 503)
                 self.assertIn("invalid height map", response.json()["detail"])
+
+            main_module.model_service = InvalidTaskOutputModelService()
+            existing_assets = {path.name for path in main_module.MEDIA_DIR.iterdir()}
+            image_bytes = BytesIO()
+            Image.new("RGB", (32, 24), "#8899aa").save(image_bytes, format="PNG")
+            response = self.client.post(
+                "/api/predict",
+                files={"file": ("scene.png", image_bytes.getvalue(), "image/png")},
+            )
+            self.assertEqual(response.status_code, 503)
+            self.assertEqual({path.name for path in main_module.MEDIA_DIR.iterdir()}, existing_assets)
         finally:
             main_module.model_service = original_model_service
 
@@ -558,6 +593,15 @@ class GroundSemanticModelService:
         return {
             "height": np.full((image.height, image.width), 12.0, dtype=np.float32),
             "semantic": semantic,
+        }
+
+
+class InvalidTaskOutputModelService:
+    def predict_result(self, image: Image.Image) -> dict[str, np.ndarray]:
+        return {
+            "height": np.ones((image.height, image.width), dtype=np.float32),
+            "boundary": np.ones((image.height, image.width), dtype=np.float32),
+            "semantic": np.ones((7, 1, 1), dtype=np.float32),
         }
 
 
