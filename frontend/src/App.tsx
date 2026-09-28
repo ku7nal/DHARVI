@@ -90,17 +90,17 @@ function App() {
   function handleFile(file: File | undefined) {
     if (!file) return;
     setSelectedFile(file);
-    void startPrediction(file, undefined, calibrateGeoTiff, groundElevation, groundElevationProvenance);
+    void startPrediction(file, undefined, { enabled: calibrateGeoTiff, elevation: groundElevation, provenance: groundElevationProvenance });
   }
 
-  async function startPrediction(file?: File, exampleId?: string, shouldCalibrateGeoTiff = true, elevation = "", provenance = "") {
+  async function startPrediction(file?: File, exampleId?: string, calibrationOptions = { enabled: true, elevation: "", provenance: "" }) {
     setPredictionState("processing");
     setPrediction(null);
     setErrorMessage(null);
     const formData = new FormData();
     if (file) formData.append("file", file);
     if (exampleId) formData.append("example_id", exampleId);
-    if (file) appendGeoTiffCalibration(formData, file.name, { enabled: shouldCalibrateGeoTiff, elevation, provenance });
+    if (file) appendGeoTiffCalibration(formData, file.name, calibrationOptions);
 
     try {
       const response = await fetch("http://localhost:8000/api/predict", { method: "POST", body: formData });
