@@ -13,6 +13,7 @@
     "test:quality": "node --experimental-strip-types scripts/scene-quality-check.ts",
     "test:route": "node --experimental-strip-types scripts/route-mode-check.ts",
     "test:elevation-pin": "node --experimental-strip-types scripts/elevation-pin-check.ts",
+    "test:calibration": "node --experimental-strip-types scripts/calibration-check.ts",
     "qa:presentation": "bash scripts/presentation-quality-check.sh"
   },
   "dependencies": {

@@ -4,6 +4,7 @@ import { PredictionInspector } from "./components/PredictionInspector";
 import humanIcon from "./components/human.png";
 import worldwideIcon from "./components/worldwide.png";
 import { ReconstructionViewer } from "./scene/ReconstructionViewer";
+import { describeCalibration } from "./calibration";
 import { createEvacuationBrief, expandDebrisZones, routePointToSceneCell } from "./routePlanner";
 import { DEFAULT_SCENE_LAYERS, type BenchmarkResult, type EvacuationBrief, type PredictionResult, type RoutePoint, type RoutePoints, type RouteProfile, type RouteResult, type SceneLayers } from "./types";
 
@@ -36,6 +37,9 @@ function BrandMark() {
 function App() {
   const [activeNav, setActiveNav] = useState<NavItem>("New reconstruction");
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [calibrateGeoTiff, setCalibrateGeoTiff] = useState(true);
+  const [groundElevation, setGroundElevation] = useState("");
+  const [groundElevationProvenance, setGroundElevationProvenance] = useState("");
   const [isDragging, setIsDragging] = useState(false);
   const [backendStatus, setBackendStatus] = useState<"checking" | "online" | "offline">("checking");
   const [predictionState, setPredictionState] = useState<PredictionState>("idle");
@@ -86,16 +90,21 @@ function App() {
   function handleFile(file: File | undefined) {
     if (!file) return;
     setSelectedFile(file);
-    void startPrediction(file);
+    void startPrediction(file, undefined, calibrateGeoTiff, groundElevation, groundElevationProvenance);
   }
 
-  async function startPrediction(file?: File, exampleId?: string) {
+  async function startPrediction(file?: File, exampleId?: string, shouldCalibrateGeoTiff = true, elevation = "", provenance = "") {
     setPredictionState("processing");
     setPrediction(null);
     setErrorMessage(null);
     const formData = new FormData();
     if (file) formData.append("file", file);
     if (exampleId) formData.append("example_id", exampleId);
+    if (file?.name.toLowerCase().endsWith(".tif") || file?.name.toLowerCase().endsWith(".tiff")) {
+      formData.append("calibrate_geotiff", String(shouldCalibrateGeoTiff));
+      if (shouldCalibrateGeoTiff && elevation.trim()) formData.append("ground_elevation", elevation.trim());
+      if (shouldCalibrateGeoTiff && elevation.trim() && provenance.trim()) formData.append("ground_elevation_provenance", provenance.trim());
+    }
 
     try {
       const response = await fetch("http://localhost:8000/api/predict", { method: "POST", body: formData });
@@ -318,7 +327,7 @@ function App() {
                 <p className="eyebrow">Monocular height reconstruction</p>
                 <h1>{activeNav === "New reconstruction" ? "New reconstruction" : activeNav}</h1>
               </div>
-                <div className="content-meta">{prediction?.heightReference === "absolute" ? "Metric DSM · meters" : "Estimated nDSM · relative meters"}</div>
+                <div className="content-meta">{prediction ? describeCalibration(prediction.heightReference, prediction.calibration).reference : "Estimated nDSM · relative meters"}</div>
             </div>
 
             {activeNav === "New reconstruction" && predictionState === "success" && prediction ? (
@@ -396,6 +405,18 @@ function App() {
                 </> : <>
                   <h2>Bring a scene to life</h2>
                   <p>Upload an aerial image to generate an explorable 3D scene.</p>
+                  <div className="calibration-options">
+                    <label><input type="checkbox" checked={calibrateGeoTiff} onChange={(event) => setCalibrateGeoTiff(event.target.checked)} /> Calibrate GeoTIFF when evidence is available</label>
+                    <small>Without calibration, or with insufficient ground evidence, the result stays a relative height estimate.</small>
+                    {calibrateGeoTiff && <>
+                      <label htmlFor="ground-elevation">Known ground elevation (meters, optional)</label>
+                      <input id="ground-elevation" type="number" step="any" value={groundElevation} onChange={(event) => setGroundElevation(event.target.value)} placeholder="e.g. 120.5" />
+                      {groundElevation.trim() && <>
+                        <label htmlFor="ground-elevation-provenance">Elevation source (optional)</label>
+                        <input id="ground-elevation-provenance" value={groundElevationProvenance} onChange={(event) => setGroundElevationProvenance(event.target.value)} placeholder="e.g. survey benchmark" />
+                      </>}
+                    </>}
+                  </div>
                   <button className="primary-button" onClick={() => fileInputRef.current?.click()}>
                     <Icon name="plus" /> Upload aerial image
                   </button>

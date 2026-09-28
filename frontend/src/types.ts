@@ -41,6 +41,8 @@ type CalibrationMetadata = {
   confidence: number | null;
   residualError: number | null;
   groundPixelCount: number | null;
+  accuracyStatus?: "unverified" | "provenance_provided_unverified";
+  groundElevationProvenance?: string | null;
   error?: string;
 };
 

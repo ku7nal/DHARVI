@@ -494,7 +494,7 @@ class FixturePredictionTests(unittest.TestCase):
             raster_file.seek(0)
             response = self.client.post(
                 "/api/predict",
-                data={"ground_elevation": "120.5"},
+                data={"ground_elevation": "120.5", "ground_elevation_provenance": "survey benchmark SB-4"},
                 files={"file": ("CITY.TIF", raster_file.read(), "image/tiff")},
             )
 
@@ -504,6 +504,8 @@ class FixturePredictionTests(unittest.TestCase):
         self.assertEqual(result["heightReference"], "absolute")
         self.assertEqual(result["calibration"]["status"], "calibrated")
         self.assertEqual(result["calibration"]["groundPixelCount"], 47)
+        self.assertEqual(result["calibration"]["accuracyStatus"], "provenance_provided_unverified")
+        self.assertEqual(result["calibration"]["groundElevationProvenance"], "survey benchmark SB-4")
         dsm_response = self.client.get(result["dsmUrl"])
         self.assertEqual(dsm_response.status_code, 200)
         with MemoryFile(dsm_response.content).open() as dataset:
@@ -530,6 +532,40 @@ class FixturePredictionTests(unittest.TestCase):
         result = response.json()
         self.assertEqual(result["calibration"]["status"], "dsm_write_failed")
         self.assertIsNone(result["dsmUrl"])
+
+    def test_geotiff_can_opt_out_of_calibration_and_stays_relative(self) -> None:
+        main_module.model_service = CalibratedModelService()
+        with NamedTemporaryFile(suffix=".tif") as raster_file:
+            with rasterio.open(raster_file.name, "w", driver="GTiff", width=8, height=6, count=3,
+                               dtype="uint8", crs="EPSG:4326", transform=from_origin(72.8, 19.1, 0.0001, 0.0001)) as dataset:
+                dataset.write(np.full((3, 6, 8), 120, dtype=np.uint8))
+            raster_file.seek(0)
+            response = self.client.post("/api/predict", data={"calibrate_geotiff": "false"},
+                files={"file": ("CITY.TIF", raster_file.read(), "image/tiff")})
+
+        self.assertEqual(response.status_code, 200)
+        result = response.json()
+        self.assertEqual(result["calibration"]["status"], "not_applicable")
+        self.assertEqual(result["heightReference"], "relative")
+        self.assertEqual(result["resultType"], "estimated_ndsm")
+        self.assertIsNone(result["dsmUrl"])
+
+    def test_ground_control_points_report_fit_without_accuracy_validation(self) -> None:
+        main_module.model_service = CalibratedModelService()
+        points = '[{"pixelX":0,"pixelY":0,"elevation":100},{"pixelX":7,"pixelY":0,"elevation":107},{"pixelX":0,"pixelY":5,"elevation":110}]'
+        with NamedTemporaryFile(suffix=".tif") as raster_file:
+            with rasterio.open(raster_file.name, "w", driver="GTiff", width=8, height=6, count=3,
+                               dtype="uint8", crs="EPSG:4326", transform=from_origin(72.8, 19.1, 0.0001, 0.0001)) as dataset:
+                dataset.write(np.full((3, 6, 8), 120, dtype=np.uint8))
+            raster_file.seek(0)
+            response = self.client.post("/api/predict", data={"ground_control_points": points},
+                files={"file": ("CITY.TIF", raster_file.read(), "image/tiff")})
+
+        self.assertEqual(response.status_code, 200)
+        calibration = response.json()["calibration"]
+        self.assertEqual(calibration["method"], "ground_control_points")
+        self.assertIsInstance(calibration["residualError"], float)
+        self.assertEqual(calibration["accuracyStatus"], "unverified")
 
     def test_rgba_geotiff_is_accepted(self) -> None:
         with NamedTemporaryFile(suffix=".tiff") as raster_file:

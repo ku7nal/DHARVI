@@ -585,6 +585,8 @@ async def predict(
     file: UploadFile | None = File(default=None),
     example_id: str | None = Form(default=None),
     ground_elevation: float | None = Form(default=None),
+    ground_elevation_provenance: str | None = Form(default=None),
+    calibrate_geotiff: bool = Form(default=True),
     ground_control_points: str | None = Form(default=None),
 ) -> dict[str, object]:
     if file is None and example_id is None:
@@ -687,11 +689,9 @@ async def predict(
             boundary_data,
         )
         if input_format == "geotiff":
-            try:
-                points = parse_ground_control_points(ground_control_points)
-            except ValueError as error:
-                raise HTTPException(status_code=400, detail=str(error)) from error
-            if not geospatial_metadata or not geospatial_metadata.get("crs"):
+            if not calibrate_geotiff:
+                calibration = {**calibration, "status": "not_applicable"}
+            elif not geospatial_metadata or not geospatial_metadata.get("crs"):
                 calibration = {
                     "status": "missing_spatial_reference",
                     "method": None,
@@ -700,7 +700,17 @@ async def predict(
                     "groundPixelCount": 0,
                 }
             else:
+                try:
+                    points = parse_ground_control_points(ground_control_points)
+                except ValueError as error:
+                    raise HTTPException(status_code=400, detail=str(error)) from error
                 dsm, calibration = calibrate_dsm(height_map, semantic_labels, ground_elevation, points, valid_mask)
+                if points:
+                    calibration["accuracyStatus"] = "unverified"
+                elif ground_elevation is not None:
+                    provenance = (ground_elevation_provenance or "").strip() or None
+                    calibration["groundElevationProvenance"] = provenance
+                    calibration["accuracyStatus"] = "provenance_provided_unverified" if provenance else "unverified"
                 if dsm is not None:
                     dsm_path = MEDIA_DIR / f"{prediction_id}-dsm.tif"
                     try:

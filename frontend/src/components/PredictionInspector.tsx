@@ -1,5 +1,6 @@
 import { useState, type ReactNode } from "react";
 import type { PredictionResult, RoutePoint, RoutePoints, RouteProfile, RouteResult, SceneLayers } from "../types";
+import { describeCalibration } from "../calibration";
 
 const API_BASE = "http://localhost:8000";
 
@@ -54,6 +55,7 @@ function LayerToggle({ label, description, active, onClick }: { label: string; d
 }
 
 function PredictionInspector({ isOpen, prediction, layers, onToggleLayer, onClose, route, routePoints, routeSelectionMode, routeState, routeError, routeNotice, avoidWater, debrisZones, routeProfile, demoSummary, onRouteModeChange, onRouteProfileChange, onExportBrief, onPlanRoute, onLoadDemoRoute, onClearRoute, onToggleWater, onClearDebris, onRemoveDebris }: PredictionInspectorProps) {
+  const calibrationReport = describeCalibration(prediction.heightReference, prediction.calibration);
   const semanticPayloadAligned = Boolean(
     prediction.semanticGridSize &&
     prediction.semanticGridSize === prediction.gridSize &&
@@ -155,8 +157,9 @@ function PredictionInspector({ isOpen, prediction, layers, onToggleLayer, onClos
           <div><span>Minimum</span><strong>{prediction.minHeight.toFixed(1)} m</strong></div>
           <div><span>Maximum</span><strong>{prediction.maxHeight.toFixed(1)} m</strong></div>
         </div>
-        <div className="inspector-note">{prediction.heightReference === "absolute" ? "Metric DSM calibrated to the source GeoTIFF reference." : "This prediction is an estimated nDSM with relative height values, not an absolute DSM."}</div>
-        {prediction.calibration && prediction.calibration.status !== "not_applicable" && <div className="inspector-note">Calibration: {prediction.calibration.status.replaceAll("_", " ")} · confidence {prediction.calibration.confidence === null ? "—" : `${(prediction.calibration.confidence * 100).toFixed(0)}%`} · residual {prediction.calibration.residualError === null ? "—" : `${prediction.calibration.residualError.toFixed(2)} m`}</div>}
+        <div className="inspector-note">{calibrationReport.reference}</div>
+        <div className="inspector-note">{calibrationReport.fit}</div>
+        {calibrationReport.accuracy && <div className="inspector-note">{calibrationReport.accuracy}</div>}
         {prediction.boundarySource === "trained"
           ? <div className="inspector-note">CNN boundary refinement active · confidence {prediction.boundaryConfidence === null || prediction.boundaryConfidence === undefined ? "—" : `${(prediction.boundaryConfidence * 100).toFixed(0)}%`}</div>
           : <div className="inspector-note">CNN boundary refinement unavailable; building footprints use semantic labels only.</div>}
