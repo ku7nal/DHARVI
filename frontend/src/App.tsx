@@ -4,7 +4,7 @@ import { PredictionInspector } from "./components/PredictionInspector";
 import humanIcon from "./components/human.png";
 import worldwideIcon from "./components/worldwide.png";
 import { ReconstructionViewer } from "./scene/ReconstructionViewer";
-import { describeCalibration } from "./calibration";
+import { appendGeoTiffCalibration, describeCalibration } from "./calibration";
 import { createEvacuationBrief, expandDebrisZones, routePointToSceneCell } from "./routePlanner";
 import { DEFAULT_SCENE_LAYERS, type BenchmarkResult, type EvacuationBrief, type PredictionResult, type RoutePoint, type RoutePoints, type RouteProfile, type RouteResult, type SceneLayers } from "./types";
 
@@ -100,11 +100,7 @@ function App() {
     const formData = new FormData();
     if (file) formData.append("file", file);
     if (exampleId) formData.append("example_id", exampleId);
-    if (file?.name.toLowerCase().endsWith(".tif") || file?.name.toLowerCase().endsWith(".tiff")) {
-      formData.append("calibrate_geotiff", String(shouldCalibrateGeoTiff));
-      if (shouldCalibrateGeoTiff && elevation.trim()) formData.append("ground_elevation", elevation.trim());
-      if (shouldCalibrateGeoTiff && elevation.trim() && provenance.trim()) formData.append("ground_elevation_provenance", provenance.trim());
-    }
+    if (file) appendGeoTiffCalibration(formData, file.name, { enabled: shouldCalibrateGeoTiff, elevation, provenance });
 
     try {
       const response = await fetch("http://localhost:8000/api/predict", { method: "POST", body: formData });

@@ -1,6 +1,6 @@
 import { useState, type ReactNode } from "react";
 import type { PredictionResult, RoutePoint, RoutePoints, RouteProfile, RouteResult, SceneLayers } from "../types";
-import { describeCalibration } from "../calibration";
+import { describeCalibration, dsmDownloadUrl } from "../calibration";
 
 const API_BASE = "http://localhost:8000";
 
@@ -56,6 +56,7 @@ function LayerToggle({ label, description, active, onClick }: { label: string; d
 
 function PredictionInspector({ isOpen, prediction, layers, onToggleLayer, onClose, route, routePoints, routeSelectionMode, routeState, routeError, routeNotice, avoidWater, debrisZones, routeProfile, demoSummary, onRouteModeChange, onRouteProfileChange, onExportBrief, onPlanRoute, onLoadDemoRoute, onClearRoute, onToggleWater, onClearDebris, onRemoveDebris }: PredictionInspectorProps) {
   const calibrationReport = describeCalibration(prediction.heightReference, prediction.calibration);
+  const downloadUrl = dsmDownloadUrl(prediction.resultType, prediction.dsmUrl);
   const semanticPayloadAligned = Boolean(
     prediction.semanticGridSize &&
     prediction.semanticGridSize === prediction.gridSize &&
@@ -163,7 +164,7 @@ function PredictionInspector({ isOpen, prediction, layers, onToggleLayer, onClos
         {prediction.boundarySource === "trained"
           ? <div className="inspector-note">CNN boundary refinement active · confidence {prediction.boundaryConfidence === null || prediction.boundaryConfidence === undefined ? "—" : `${(prediction.boundaryConfidence * 100).toFixed(0)}%`}</div>
           : <div className="inspector-note">CNN boundary refinement unavailable; building footprints use semantic labels only.</div>}
-        {prediction.dsmUrl && <a className="text-button" href={`${API_BASE}${prediction.dsmUrl}`} download>Download metric DSM GeoTIFF</a>}
+        {downloadUrl && <a className="text-button" href={`${API_BASE}${downloadUrl}`} download>Download metric DSM GeoTIFF</a>}
         <div className="inspector-note">Buildings: {prediction.buildingRegionSource === "semantic_head" ? "GAMUS semantic mask" : "height-derived fallback"} · {prediction.buildingRegions?.length ?? 0} regions</div>
         {prediction.geospatial && <div className="geospatial-card">
           <strong>GeoTIFF metadata</strong>

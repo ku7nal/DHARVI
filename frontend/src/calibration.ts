@@ -1,5 +1,16 @@
 import type { CalibrationMetadata } from "./types";
 
+function appendGeoTiffCalibration(formData: FormData, filename: string, options: { enabled: boolean; elevation: string; provenance: string }) {
+  if (!/\.tiff?$/i.test(filename)) return;
+  formData.append("calibrate_geotiff", String(options.enabled));
+  if (options.enabled && options.elevation.trim()) formData.append("ground_elevation", options.elevation.trim());
+  if (options.enabled && options.elevation.trim() && options.provenance.trim()) formData.append("ground_elevation_provenance", options.provenance.trim());
+}
+
+function dsmDownloadUrl(resultType: "estimated_ndsm" | "metric_dsm", url?: string | null) {
+  return resultType === "metric_dsm" ? url ?? null : null;
+}
+
 function describeCalibration(heightReference: "relative" | "absolute", calibration?: CalibrationMetadata) {
   const calibrated = heightReference === "absolute";
   return {
@@ -15,4 +26,4 @@ function describeCalibration(heightReference: "relative" | "absolute", calibrati
   };
 }
 
-export { describeCalibration };
+export { appendGeoTiffCalibration, describeCalibration, dsmDownloadUrl };

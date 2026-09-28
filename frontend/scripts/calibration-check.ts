@@ -1,5 +1,23 @@
 import assert from "node:assert/strict";
-import { describeCalibration } from "../src/calibration.ts";
+import { appendGeoTiffCalibration, describeCalibration, dsmDownloadUrl } from "../src/calibration.ts";
+
+const calibratedRequest = new FormData();
+appendGeoTiffCalibration(calibratedRequest, "scene.tif", { enabled: true, elevation: " 120.5 ", provenance: " survey benchmark " });
+assert.deepEqual([...calibratedRequest.entries()], [
+  ["calibrate_geotiff", "true"], ["ground_elevation", "120.5"], ["ground_elevation_provenance", "survey benchmark"],
+]);
+const relativeRequest = new FormData();
+appendGeoTiffCalibration(relativeRequest, "scene.tiff", { enabled: false, elevation: "120.5", provenance: "benchmark" });
+assert.deepEqual([...relativeRequest.entries()], [["calibrate_geotiff", "false"]]);
+const evidenceRequest = new FormData();
+appendGeoTiffCalibration(evidenceRequest, "scene.tif", { enabled: true, elevation: "", provenance: "ignored without elevation" });
+assert.deepEqual([...evidenceRequest.entries()], [["calibrate_geotiff", "true"]]);
+const imageRequest = new FormData();
+appendGeoTiffCalibration(imageRequest, "scene.png", { enabled: true, elevation: "120.5", provenance: "benchmark" });
+assert.deepEqual([...imageRequest.entries()], []);
+assert.equal(dsmDownloadUrl("metric_dsm", "/media/calibrated.tif"), "/media/calibrated.tif");
+assert.equal(dsmDownloadUrl("estimated_ndsm", "/media/should-not-download.tif"), null);
+assert.equal(dsmDownloadUrl("metric_dsm", null), null);
 
 const relative = describeCalibration("relative", { status: "insufficient_ground_evidence", method: null, confidence: 0, residualError: null, groundPixelCount: 0 });
 assert.equal(relative.reference, "Estimated nDSM · relative meters");
