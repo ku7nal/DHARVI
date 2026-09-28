@@ -96,6 +96,7 @@ function prepareSemanticTerrain(
   semanticData?: number[] | null,
   semanticGridSize?: number | null,
   buildingRegions?: readonly BuildingRegion[],
+  validityData?: readonly boolean[] | null,
 ): SemanticTerrain {
   const hasAlignedSemanticData = Boolean(
     semanticData?.length
@@ -107,10 +108,13 @@ function prepareSemanticTerrain(
   const normalizedClasses = hasAlignedSemanticData
     ? resizeNearest(semanticData!, semanticGridSize!, gridSize).map((value) => value >= OTHERS && value <= TREE ? value : GROUND)
     : Array.from({ length: gridSize * gridSize }, () => GROUND);
+  if (validityData?.length === gridSize * gridSize) {
+    normalizedClasses.forEach((_, index) => { if (!validityData[index]) normalizedClasses[index] = -1; });
+  }
   const classes = smoothSemanticClasses(normalizedClasses, gridSize);
   const safeHeights = heightData.map((value) => Number.isFinite(value) ? Math.max(0, value) : 0);
   const groundHeights = safeHeights.filter((_, index) => classes[index] === GROUND);
-  const nonBuildingHeights = safeHeights.filter((_, index) => classes[index] !== BUILDING);
+  const nonBuildingHeights = safeHeights.filter((_, index) => classes[index] >= 0 && classes[index] !== BUILDING);
   const baseHeight = median(groundHeights.length ? groundHeights : nonBuildingHeights, 0);
   const terrainHeights = safeHeights.map((value, index) => {
     const semanticClass = classes[index];
@@ -123,7 +127,7 @@ function prepareSemanticTerrain(
           const nextRow = row + rowDelta;
           const nextColumn = column + columnDelta;
           const nextIndex = nextRow * gridSize + nextColumn;
-          if (nextRow >= 0 && nextRow < gridSize && nextColumn >= 0 && nextColumn < gridSize && classes[nextIndex] !== BUILDING) neighbours.push(safeHeights[nextIndex]);
+          if (nextRow >= 0 && nextRow < gridSize && nextColumn >= 0 && nextColumn < gridSize && classes[nextIndex] >= 0 && classes[nextIndex] !== BUILDING) neighbours.push(safeHeights[nextIndex]);
         }
       }
       return median(neighbours, baseHeight);

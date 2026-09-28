@@ -1,4 +1,5 @@
 import { BUILDING, GROUND, LOW_VEGETATION, OTHERS, ROAD, SEMANTIC_LAYER_DEFINITIONS, SEMANTIC_TERRAIN_CLASSES, TREE, WATER, createSemanticSurfaceGeometry, getSemanticClassColor, getVisibleSemanticClassIds, prepareSemanticTerrain, smoothSemanticClasses } from "../src/semanticTerrain.ts";
+import { validSurfaceIndices } from "../src/surfaceValidity.ts";
 
 function assertHealthyGeometry(geometry: ReturnType<typeof createSemanticSurfaceGeometry>, label: string): void {
   const positions = geometry.getAttribute("position");
@@ -143,5 +144,11 @@ if (budgetGeometries.length !== expectedPalette.length || totalBudgetCells !== b
 
 const legacyTerrain = prepareSemanticTerrain(heights, 4, 90);
 if (legacyTerrain.classes.some((classId) => classId !== GROUND)) throw new Error("height-only terrain lost its legacy ground fallback");
+
+const maskedTerrain = prepareSemanticTerrain([80, 0, 80, 0], 2, 80, [GROUND, GROUND, GROUND, GROUND], 2, undefined, [true, false, true, false]);
+const maskedGeometry = createSemanticSurfaceGeometry(maskedTerrain.heights, maskedTerrain.classes, 2, GROUND, 80, 1);
+if (maskedTerrain.baseHeight !== 80 || maskedTerrain.classes[1] !== -1 || (maskedGeometry.getIndex()?.count ?? 0) !== 12) throw new Error("nodata cells affected semantic terrain or remained rendered");
+maskedGeometry.dispose();
+if (validSurfaceIndices([0, 1, 2, 2, 1, 3], [true, true, true, false]).join(",") !== "0,1,2") throw new Error("terrain mesh retained a triangle that touches nodata");
 
 console.log("semantic terrain fixture passed");

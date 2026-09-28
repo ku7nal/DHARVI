@@ -9,9 +9,11 @@ import { expandDebrisZones, routePointToSceneCell } from "../routePlanner";
 import { MAX_TREE_INSTANCES, getBuildingDetailLevel, validateSceneQuality } from "../sceneQuality";
 import { BUILDING, SEMANTIC_LAYER_DEFINITIONS, TREE, createSemanticSurfaceGeometry, getSemanticClassColor, getVisibleSemanticClassIds, prepareSemanticTerrain } from "../semanticTerrain";
 import { clampPinPoint, formatElevationReadout, getPinHeight, type ElevationReference } from "./elevationPin";
+import { validSurfaceIndices } from "../surfaceValidity";
 
 type ReconstructionViewerProps = {
   heightData: number[];
+  validityData?: boolean[] | null;
   gridSize: number;
   maxHeight: number;
   heightReference?: ElevationReference;
@@ -119,9 +121,13 @@ function TreeInstances({ terrain, maxHeight, exaggeration, visible }: { terrain:
   </group>;
 }
 
-function createSurfaceGeometry(heightData: number[], gridSize: number, maxHeight: number, exaggeration: number) {
+function createSurfaceGeometry(heightData: number[], gridSize: number, maxHeight: number, exaggeration: number, validityData?: boolean[] | null) {
   const surface = new THREE.PlaneGeometry(WORLD_WIDTH, WORLD_DEPTH, gridSize - 1, gridSize - 1);
   surface.rotateX(-Math.PI / 2);
+  const indices = surface.getIndex();
+  if (indices && validityData?.length === gridSize * gridSize) {
+    surface.setIndex(validSurfaceIndices(indices.array, validityData));
+  }
   const positions = surface.attributes.position;
   const verticalScale = 3.6 / Math.max(maxHeight, 1);
 
@@ -196,7 +202,14 @@ function extractBuildingRegions(heightData: number[], gridSize: number, maxHeigh
   return regions;
 }
 
-function TerrainBase() {
+function TerrainBase({ validityData, gridSize }: { validityData?: boolean[] | null; gridSize: number }) {
+  const geometry = useMemo(
+    () => validityData?.length === gridSize * gridSize
+      ? createSurfaceGeometry([], gridSize, 1, 1, validityData)
+      : null,
+    [gridSize, validityData],
+  );
+  if (geometry) return <mesh geometry={geometry} receiveShadow position={[0, 0, 0]}><meshStandardMaterial color="#b6c99e" roughness={1} /></mesh>;
   return <mesh rotation={[-Math.PI / 2, 0, 0]} receiveShadow position={[0, 0, 0]}><planeGeometry args={[WORLD_WIDTH, WORLD_DEPTH]} /><meshStandardMaterial color="#b6c99e" roughness={1} /></mesh>;
 }
 
@@ -209,18 +222,13 @@ function SemanticTerrain({ terrain, maxHeight, exaggeration, layers, wireframe, 
   </mesh>)}</group>;
 }
 
-function createSlopeGeometry(heightData: number[], gridSize: number, maxHeight: number, exaggeration: number) {
-  const geometry = createSurfaceGeometry(heightData, gridSize, maxHeight, exaggeration);
+function createSlopeGeometry(heightData: number[], gridSize: number, maxHeight: number, exaggeration: number, validityData?: boolean[] | null) {
+  const geometry = createSurfaceGeometry(heightData, gridSize, maxHeight, exaggeration, validityData);
   const colors = new Float32Array(geometry.attributes.position.count * 3);
-  const safeMax = Math.max(maxHeight, 1);
   for (let row = 0; row < gridSize; row += 1) {
     for (let column = 0; column < gridSize; column += 1) {
       const index = row * gridSize + column;
-      const left = heightData[row * gridSize + Math.max(0, column - 1)] ?? 0;
-      const right = heightData[row * gridSize + Math.min(gridSize - 1, column + 1)] ?? 0;
-      const up = heightData[Math.max(0, row - 1) * gridSize + column] ?? 0;
-      const down = heightData[Math.min(gridSize - 1, row + 1) * gridSize + column] ?? 0;
-      const slope = Math.min(1, calculateSlopeDegrees(heightData, gridSize, maxHeight, exaggeration, row, column) / 60);
+      const slope = Math.min(1, calculateSlopeDegrees(heightData, gridSize, maxHeight, exaggeration, row, column, validityData) / 60);
       const color = new THREE.Color().setHSL(0.58 - slope * 0.58, 0.78, 0.52);
       colors[index * 3] = color.r;
       colors[index * 3 + 1] = color.g;
@@ -231,23 +239,28 @@ function createSlopeGeometry(heightData: number[], gridSize: number, maxHeight: 
   return geometry;
 }
 
-function calculateSlopeDegrees(heightData: number[], gridSize: number, maxHeight: number, exaggeration: number, row: number, column: number) {
-  const left = heightData[row * gridSize + Math.max(0, column - 1)] ?? 0;
-  const right = heightData[row * gridSize + Math.min(gridSize - 1, column + 1)] ?? 0;
-  const up = heightData[Math.max(0, row - 1) * gridSize + column] ?? 0;
-  const down = heightData[Math.min(gridSize - 1, row + 1) * gridSize + column] ?? 0;
+function calculateSlopeDegrees(heightData: number[], gridSize: number, maxHeight: number, exaggeration: number, row: number, column: number, validityData?: boolean[] | null) {
+  const center = heightData[row * gridSize + column] ?? 0;
+  const heightAt = (nextRow: number, nextColumn: number) => {
+    const index = nextRow * gridSize + nextColumn;
+    return validityData?.length === gridSize * gridSize && !validityData[index] ? center : heightData[index] ?? center;
+  };
+  const left = heightAt(row, Math.max(0, column - 1));
+  const right = heightAt(row, Math.min(gridSize - 1, column + 1));
+  const up = heightAt(Math.max(0, row - 1), column);
+  const down = heightAt(Math.min(gridSize - 1, row + 1), column);
   const verticalScale = 3.6 / Math.max(maxHeight, 1) * exaggeration;
   const horizontalX = WORLD_WIDTH / Math.max(gridSize - 1, 1);
   const horizontalZ = WORLD_DEPTH / Math.max(gridSize - 1, 1);
   return Math.atan(Math.hypot((right - left) * verticalScale / Math.max(horizontalX * 2, 0.001), (down - up) * verticalScale / Math.max(horizontalZ * 2, 0.001))) * 180 / Math.PI;
 }
 
-function inspectHeight(heightData: number[], gridSize: number, maxHeight: number, exaggeration: number, point: THREE.Vector3) {
+function inspectHeight(heightData: number[], gridSize: number, maxHeight: number, exaggeration: number, point: THREE.Vector3, validityData?: boolean[] | null) {
   const column = Math.max(0, Math.min(gridSize - 1, Math.round((point.x / WORLD_WIDTH + 0.5) * (gridSize - 1))));
   const row = Math.max(0, Math.min(gridSize - 1, Math.round((point.z / WORLD_DEPTH + 0.5) * (gridSize - 1))));
   const index = row * gridSize + column;
   const height = heightData[index] ?? 0;
-  const slope = calculateSlopeDegrees(heightData, gridSize, maxHeight, exaggeration, row, column);
+  const slope = calculateSlopeDegrees(heightData, gridSize, maxHeight, exaggeration, row, column, validityData);
   return { height, slope };
 }
 
@@ -390,41 +403,43 @@ function BuildingRegionMesh({ region, index, verticalScale, wireframe, semanticC
   </group>;
 }
 
-function StylizedCity({ heightData, gridSize, maxHeight, exaggeration, buildingRegions, wireframe, semanticData, semanticGridSize, semanticClasses, layers }: Omit<ReconstructionViewerProps, "layers" | "inputImageUrl"> & { exaggeration: number; wireframe: boolean; layers: SceneLayers }) {
+function StylizedCity({ heightData, validityData, gridSize, maxHeight, exaggeration, buildingRegions, wireframe, semanticData, semanticGridSize, semanticClasses, layers }: Omit<ReconstructionViewerProps, "layers" | "inputImageUrl"> & { exaggeration: number; wireframe: boolean; layers: SceneLayers }) {
   const regions = useMemo(() => buildingRegions?.length ? buildingRegions : extractBuildingRegions(heightData, gridSize, maxHeight), [buildingRegions, gridSize, heightData, maxHeight]);
-  const terrain = useMemo(() => prepareSemanticTerrain(heightData, gridSize, maxHeight, semanticData, semanticGridSize, regions), [heightData, gridSize, maxHeight, semanticData, semanticGridSize, regions]);
+  const terrain = useMemo(() => prepareSemanticTerrain(
+    heightData, gridSize, maxHeight, semanticData, semanticGridSize, regions, validityData,
+  ), [heightData, gridSize, maxHeight, semanticData, semanticGridSize, regions, validityData]);
   const quality = useMemo(() => validateSceneQuality(heightData, gridSize, maxHeight, regions), [heightData, gridSize, maxHeight, regions]);
   const verticalScale = 3.6 / Math.max(maxHeight, 1) * exaggeration;
 
   return <group userData={{ sceneQuality: quality }}>
-    {semanticData?.length ? <SemanticTerrain terrain={terrain} maxHeight={maxHeight} exaggeration={exaggeration} layers={layers} wireframe={wireframe} semanticClasses={semanticClasses} /> : <TerrainBase />}
+    {semanticData?.length ? <SemanticTerrain terrain={terrain} maxHeight={maxHeight} exaggeration={exaggeration} layers={layers} wireframe={wireframe} semanticClasses={semanticClasses} /> : <TerrainBase validityData={validityData} gridSize={gridSize} />}
     <TreeInstances terrain={terrain} maxHeight={maxHeight} exaggeration={exaggeration} visible={layers.trees && Boolean(semanticData?.length)} />
     {layers.buildings && regions.map((region, index) => <BuildingRegionMesh key={`${region.centerX}-${region.centerZ}-${index}`} region={region} index={index} verticalScale={verticalScale} wireframe={wireframe} semanticClasses={semanticClasses} />)}
   </group>;
 }
 
-function HeightSurface({ heightData, gridSize, maxHeight, exaggeration, layers }: ReconstructionViewerProps & { exaggeration: number }) {
-  const geometry = useMemo(() => createSurfaceGeometry(heightData, gridSize, maxHeight, exaggeration), [exaggeration, gridSize, heightData, maxHeight]);
+function HeightSurface({ heightData, validityData, gridSize, maxHeight, exaggeration, layers }: ReconstructionViewerProps & { exaggeration: number }) {
+  const geometry = useMemo(() => createSurfaceGeometry(heightData, gridSize, maxHeight, exaggeration, validityData), [exaggeration, gridSize, heightData, maxHeight, validityData]);
 
   if (!layers.height && !layers.rgb) return null;
   const color = layers.height ? "#8177b6" : "#aeb8c5";
   return <mesh geometry={geometry} castShadow receiveShadow><meshStandardMaterial color={color} roughness={0.82} metalness={0.02} wireframe={layers.wireframe} /></mesh>;
 }
 
-function SlopeSurface({ heightData, gridSize, maxHeight, exaggeration, enabled, wireframe }: { heightData: number[]; gridSize: number; maxHeight: number; exaggeration: number; enabled: boolean; wireframe: boolean }) {
-  const geometry = useMemo(() => enabled ? createSlopeGeometry(heightData, gridSize, maxHeight, exaggeration) : null, [enabled, exaggeration, gridSize, heightData, maxHeight]);
+function SlopeSurface({ heightData, validityData, gridSize, maxHeight, exaggeration, enabled, wireframe }: { heightData: number[]; validityData?: boolean[] | null; gridSize: number; maxHeight: number; exaggeration: number; enabled: boolean; wireframe: boolean }) {
+  const geometry = useMemo(() => enabled ? createSlopeGeometry(heightData, gridSize, maxHeight, exaggeration, validityData) : null, [enabled, exaggeration, gridSize, heightData, maxHeight, validityData]);
   if (!geometry) return null;
   return <mesh geometry={geometry} position={[0, 0.012, 0]} receiveShadow><meshStandardMaterial vertexColors polygonOffset polygonOffsetFactor={-1} polygonOffsetUnits={-1} wireframe={wireframe} roughness={0.88} /></mesh>;
 }
 
-function RgbSurface({ heightData, gridSize, maxHeight, exaggeration, inputImageUrl }: ReconstructionViewerProps & { exaggeration: number }) {
+function RgbSurface({ heightData, validityData, gridSize, maxHeight, exaggeration, inputImageUrl }: ReconstructionViewerProps & { exaggeration: number }) {
   const texture = useTexture(inputImageUrl);
-  const geometry = useMemo(() => createSurfaceGeometry(heightData, gridSize, maxHeight, exaggeration), [exaggeration, gridSize, heightData, maxHeight]);
+  const geometry = useMemo(() => createSurfaceGeometry(heightData, gridSize, maxHeight, exaggeration, validityData), [exaggeration, gridSize, heightData, maxHeight, validityData]);
 
-  return <mesh geometry={geometry} position={[0, 0.015, 0]}><meshBasicMaterial map={texture} polygonOffset polygonOffsetFactor={-1} polygonOffsetUnits={-1} /></mesh>;
+  return <mesh geometry={geometry} position={[0, 0.015, 0]}><meshBasicMaterial map={texture} transparent={Boolean(validityData)} polygonOffset polygonOffsetFactor={-1} polygonOffsetUnits={-1} /></mesh>;
 }
 
-function SceneContents({ heightData, gridSize, maxHeight, exaggeration, cameraMode, presentationMode, layers, inputImageUrl, buildingRegions, semanticData, semanticGridSize, semanticClasses, onInspect, route, routePoints, debrisZones, routeSelectionMode, onRoutePointSelect, heightReference = "relative", pinPlacementActive = false, pinDragging = false, pinPoint, onPinDragStart, onPinDragMove, onPinDragEnd }: ReconstructionViewerProps & { exaggeration: number; cameraMode: CameraMode; presentationMode: boolean; onInspect: (point: THREE.Vector3) => void; pinPoint: RoutePoint | null; pinDragging: boolean; onPinDragStart: (point: THREE.Vector3) => void; onPinDragMove: (point: THREE.Vector3) => void; onPinDragEnd: () => void }) {
+function SceneContents({ heightData, validityData, gridSize, maxHeight, exaggeration, cameraMode, presentationMode, layers, inputImageUrl, buildingRegions, semanticData, semanticGridSize, semanticClasses, onInspect, route, routePoints, debrisZones, routeSelectionMode, onRoutePointSelect, heightReference = "relative", pinPlacementActive = false, pinDragging = false, pinPoint, onPinDragStart, onPinDragMove, onPinDragEnd }: ReconstructionViewerProps & { exaggeration: number; cameraMode: CameraMode; presentationMode: boolean; onInspect: (point: THREE.Vector3) => void; pinPoint: RoutePoint | null; pinDragging: boolean; onPinDragStart: (point: THREE.Vector3) => void; onPinDragMove: (point: THREE.Vector3) => void; onPinDragEnd: () => void }) {
   const cameraPosition: [number, number, number] = cameraMode === "isometric" ? [12, 11, 14] : cameraMode === "top" ? [0, 18, 0.01] : [8, 5, 8];
   const pinHeight = pinPoint ? getPinHeight(pinPoint, heightData, gridSize) : 0;
   const pinScenePoint = pinPoint ? gridPointToScene(pinPoint, gridSize, heightData, maxHeight, exaggeration) : null;
@@ -436,11 +451,11 @@ function SceneContents({ heightData, gridSize, maxHeight, exaggeration, cameraMo
       <hemisphereLight intensity={0.42} color="#fff8ed" groundColor="#8998b4" />
       <directionalLight castShadow intensity={3.1} position={[7, 13, 8]} shadow-mapSize={[1024, 1024]} shadow-bias={-0.0002} shadow-camera-near={0.1} shadow-camera-far={40} />
       <directionalLight intensity={0.48} position={[-8, 5, -4]} color="#d7d1ff" />
-      {layers.city && <Suspense fallback={null}><StylizedCity heightData={heightData} gridSize={gridSize} maxHeight={maxHeight} exaggeration={exaggeration} buildingRegions={buildingRegions} wireframe={layers.wireframe} semanticData={semanticData} semanticGridSize={semanticGridSize} semanticClasses={semanticClasses} layers={layers} /></Suspense>}
+      {layers.city && <Suspense fallback={null}><StylizedCity heightData={heightData} validityData={validityData} gridSize={gridSize} maxHeight={maxHeight} exaggeration={exaggeration} buildingRegions={buildingRegions} wireframe={layers.wireframe} semanticData={semanticData} semanticGridSize={semanticGridSize} semanticClasses={semanticClasses} layers={layers} /></Suspense>}
       {layers.city && <ContactShadows position={[0, 0.01, 0]} opacity={0.38} scale={20} blur={1.6} far={8} resolution={256} color="#555064" />}
-      <HeightSurface heightData={heightData} gridSize={gridSize} maxHeight={maxHeight} exaggeration={exaggeration} layers={layers} inputImageUrl={inputImageUrl} />
-      <SlopeSurface heightData={heightData} gridSize={gridSize} maxHeight={maxHeight} exaggeration={exaggeration} enabled={layers.slope} wireframe={layers.wireframe} />
-      {layers.rgb && <Suspense fallback={null}><RgbSurface heightData={heightData} gridSize={gridSize} maxHeight={maxHeight} exaggeration={exaggeration} layers={layers} inputImageUrl={inputImageUrl} /></Suspense>}
+      <HeightSurface heightData={heightData} validityData={validityData} gridSize={gridSize} maxHeight={maxHeight} exaggeration={exaggeration} layers={layers} inputImageUrl={inputImageUrl} />
+      <SlopeSurface heightData={heightData} validityData={validityData} gridSize={gridSize} maxHeight={maxHeight} exaggeration={exaggeration} enabled={layers.slope} wireframe={layers.wireframe} />
+      {layers.rgb && <Suspense fallback={null}><RgbSurface heightData={heightData} validityData={validityData} gridSize={gridSize} maxHeight={maxHeight} exaggeration={exaggeration} layers={layers} inputImageUrl={inputImageUrl} /></Suspense>}
       <RouteOverlay route={route} routePoints={routePoints} debrisZones={debrisZones} heightData={heightData} gridSize={gridSize} maxHeight={maxHeight} />
       {(!presentationMode || routeSelectionMode !== "idle" || pinPlacementActive) && <InspectionPlane heightData={heightData} gridSize={gridSize} maxHeight={maxHeight} onInspect={onInspect} onSelect={routeSelectionMode === "idle" && !pinPlacementActive ? onRoutePointSelect : undefined} pinPlacementActive={pinPlacementActive} onPinDragStart={onPinDragStart} onPinDragMove={onPinDragMove} onPinDragEnd={onPinDragEnd} />}
       {pinScenePoint && <ElevationPin point={pinScenePoint} height={pinHeight} heightReference={heightReference} alignRight={Boolean(pinPoint && pinPoint.column > gridSize * 0.68)} />}
@@ -467,7 +482,7 @@ function SceneControlIcon({ name }: { name: "search" | "plus" | "minus" | "focus
   return <svg aria-hidden="true" className="scene-control-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">{paths[name]}</svg>;
 }
 
-function ReconstructionViewer({ heightData, gridSize, maxHeight, heightReference = "relative", layers, inputImageUrl, buildingRegions, semanticData, semanticGridSize, semanticClasses, route, routePoints, debrisZones, routeSelectionMode = "idle", onRoutePointSelect, pinPlacementActive = false, onPinPlacementActiveChange }: ReconstructionViewerProps) {
+function ReconstructionViewer({ heightData, validityData, gridSize, maxHeight, heightReference = "relative", layers, inputImageUrl, buildingRegions, semanticData, semanticGridSize, semanticClasses, route, routePoints, debrisZones, routeSelectionMode = "idle", onRoutePointSelect, pinPlacementActive = false, onPinPlacementActiveChange }: ReconstructionViewerProps) {
   const [cameraMode, setCameraMode] = useState<CameraMode | "fly">("isometric");
   const [exaggeration, setExaggeration] = useState(1);
   const [resetKey, setResetKey] = useState(0);
@@ -518,7 +533,7 @@ function ReconstructionViewer({ heightData, gridSize, maxHeight, heightReference
     <div className="reconstruction-viewer">
       <Canvas key={`${cameraMode}-${presentationMode}-${resetKey}`} shadows dpr={[1, renderDpr]} gl={{ antialias: true, toneMapping: THREE.ACESFilmicToneMapping, toneMappingExposure: 1.08 }} camera={{ position: [12, 11, 14], fov: 36 }}>
         <PerformanceMonitor onDecline={() => setRenderDpr(1)} onIncline={() => setRenderDpr(1.5)} />
-        <SceneContents heightData={heightData} gridSize={gridSize} maxHeight={maxHeight} heightReference={heightReference} exaggeration={exaggeration} cameraMode={cameraMode} presentationMode={presentationMode} layers={{ ...layers, rgb: showSourceImage }} inputImageUrl={inputImageUrl} buildingRegions={buildingRegions} semanticData={semanticData} semanticGridSize={semanticGridSize} semanticClasses={semanticClasses} route={route} routePoints={routePoints} debrisZones={debrisZones} routeSelectionMode={routeSelectionMode} onRoutePointSelect={onRoutePointSelect} pinPlacementActive={pinPlacementActive} pinDragging={pinDragging} pinPoint={pinPoint} onPinDragStart={(point) => { setPinDragging(true); updatePin(point); }} onPinDragMove={(point) => pinDragging && updatePin(point)} onPinDragEnd={() => setPinDragging(false)} onInspect={(point) => setInspection(inspectHeight(heightData, gridSize, maxHeight, exaggeration, point))} />
+        <SceneContents heightData={heightData} validityData={validityData} gridSize={gridSize} maxHeight={maxHeight} heightReference={heightReference} exaggeration={exaggeration} cameraMode={cameraMode} presentationMode={presentationMode} layers={{ ...layers, rgb: showSourceImage }} inputImageUrl={inputImageUrl} buildingRegions={buildingRegions} semanticData={semanticData} semanticGridSize={semanticGridSize} semanticClasses={semanticClasses} route={route} routePoints={routePoints} debrisZones={debrisZones} routeSelectionMode={routeSelectionMode} onRoutePointSelect={onRoutePointSelect} pinPlacementActive={pinPlacementActive} pinDragging={pinDragging} pinPoint={pinPoint} onPinDragStart={(point) => { setPinDragging(true); updatePin(point); }} onPinDragMove={(point) => pinDragging && updatePin(point)} onPinDragEnd={() => setPinDragging(false)} onInspect={(point) => setInspection(inspectHeight(heightData, gridSize, maxHeight, exaggeration, point, validityData))} />
       </Canvas>
       <div className="scene-controls" aria-label="Scene controls">
         <button className="scene-control-button" aria-label="Reset view" title="Reset view" onClick={() => setResetKey((key) => key + 1)}><SceneControlIcon name="search" /></button>

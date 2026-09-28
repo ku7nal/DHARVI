@@ -16,6 +16,7 @@ type PredictionResult = {
   isFixture: boolean;
   gridSize: number;
   heightData: number[];
+  validityData?: boolean[] | null;
   semanticClasses?: SemanticClass[];
   semanticGridSize?: number | null;
   semanticData?: number[] | null;

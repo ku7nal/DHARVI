@@ -223,32 +223,63 @@ def _write_boundary_asset(boundary_confidence: np.ndarray, prediction_id: str) -
     return f"/media/{path.name}", [round(float(value), 4) for value in np.asarray(grid, dtype=np.float32).ravel()]
 
 
+def _scene_validity_mask(valid_mask: np.ndarray) -> np.ndarray:
+    return np.asarray(
+        Image.fromarray(np.asarray(valid_mask, dtype=np.uint8) * 255).resize(
+            (SCENE_GRID_SIZE, SCENE_GRID_SIZE), Image.Resampling.NEAREST,
+        ),
+        dtype=np.uint8,
+    ) > 0
+
+
 def _write_model_prediction_assets(
     image: Image.Image,
     height_map: np.ndarray,
     prediction_id: str,
-) -> tuple[str, str, list[float], float, float]:
+    valid_mask: np.ndarray | None = None,
+) -> tuple[str, str, list[float], float, float, list[bool] | None]:
     image = image.convert("RGB")
     input_path = MEDIA_DIR / f"{prediction_id}-input.png"
     height_path = MEDIA_DIR / f"{prediction_id}-height.png"
-    image.save(input_path, format="PNG")
+    mask_grid = None
+    if valid_mask is not None:
+        mask = np.asarray(valid_mask, dtype=bool)
+        mask_grid = _scene_validity_mask(mask)
+        alpha = np.asarray(mask, dtype=np.uint8) * 255
+        if np.all(mask):
+            image.save(input_path, format="PNG")
+        else:
+            Image.fromarray(np.dstack((np.asarray(image), alpha))).save(input_path, format="PNG")
+    else:
+        image.save(input_path, format="PNG")
 
-    clean_height_map = np.nan_to_num(height_map.astype(np.float32), nan=0.0, posinf=0.0, neginf=0.0)
+    clean_height_map = np.asarray(height_map, dtype=np.float32)
+    if valid_mask is not None:
+        clean_height_map = np.where(valid_mask, clean_height_map, 0.0)
     clean_height_map = np.maximum(clean_height_map, 0.0)
-    min_height = float(clean_height_map.min())
-    max_height = float(clean_height_map.max())
+    valid_heights = clean_height_map if valid_mask is None else clean_height_map[valid_mask]
+    min_height = float(valid_heights.min())
+    max_height = float(valid_heights.max())
     preview_scale = max(max_height, 1e-6)
     preview = np.clip(clean_height_map / preview_scale * 255, 0, 255).astype(np.uint8)
-    Image.fromarray(preview, mode="L").save(height_path, format="PNG")
+    if valid_mask is not None and not np.all(valid_mask):
+        Image.fromarray(np.dstack((preview, preview, preview, np.asarray(valid_mask, dtype=np.uint8) * 255))).save(height_path, format="PNG")
+    else:
+        Image.fromarray(preview).save(height_path, format="PNG")
 
-    grid = Image.fromarray(clean_height_map, mode="F").resize((SCENE_GRID_SIZE, SCENE_GRID_SIZE), Image.Resampling.BILINEAR)
-    height_data = [round(float(value), 3) for value in np.asarray(grid, dtype=np.float32).ravel()]
+    grid = Image.fromarray(clean_height_map).resize((SCENE_GRID_SIZE, SCENE_GRID_SIZE), Image.Resampling.BILINEAR)
+    scene_heights = np.array(grid, dtype=np.float32, copy=True)
+    validity_data = None if mask_grid is None or np.all(mask_grid) else mask_grid.ravel().tolist()
+    if mask_grid is not None:
+        scene_heights[~mask_grid] = 0.0
+    height_data = [round(float(value), 3) for value in scene_heights.ravel()]
     return (
         f"/media/{input_path.name}",
         f"/media/{height_path.name}",
         height_data,
         min_height,
         max_height,
+        validity_data,
     )
 
 
@@ -446,7 +477,7 @@ def _is_geotiff(filename: str, content_type: str | None) -> bool:
     return filename.lower().endswith((".tif", ".tiff")) or content_type in {"image/tiff", "image/geotiff"}
 
 
-def _normalize_raster_bands(bands: np.ndarray) -> np.ndarray:
+def _normalize_raster_bands(bands: np.ndarray, valid_mask: np.ndarray | None = None) -> np.ndarray:
     if bands.dtype == np.uint8:
         return bands
     normalized = np.empty_like(bands, dtype=np.uint8)
@@ -456,7 +487,8 @@ def _normalize_raster_bands(bands: np.ndarray) -> np.ndarray:
             high = float(np.iinfo(bands.dtype).max)
             normalized[index] = np.clip(values / max(high, 1.0) * 255, 0, 255).astype(np.uint8)
             continue
-        low, high = np.percentile(values, [2, 98])
+        sample = values if valid_mask is None else values[valid_mask]
+        low, high = np.percentile(sample, [2, 98])
         if high <= low:
             normalized[index] = np.zeros_like(values, dtype=np.uint8)
         else:
@@ -464,16 +496,31 @@ def _normalize_raster_bands(bands: np.ndarray) -> np.ndarray:
     return normalized
 
 
-def _read_geotiff(raw: bytes) -> tuple[Image.Image, dict[str, object]]:
+def _read_geotiff(raw: bytes) -> tuple[Image.Image, dict[str, object], np.ndarray]:
     try:
         with MemoryFile(raw).open() as source:
+            if source.width < 1 or source.height < 1:
+                raise HTTPException(status_code=400, detail="The GeoTIFF must have non-zero width and height.")
             if source.count not in (3, 4):
                 raise HTTPException(
                     status_code=415,
                     detail=f"This GeoTIFF has {source.count} bands. DepthWizard accepts RGB or RGBA GeoTIFFs only.",
                 )
-            bands = _normalize_raster_bands(source.read())
-            valid_mask = source.dataset_mask() > 0
+            raster_values = source.read()
+            valid_mask = (source.dataset_mask() > 0) & np.all(np.isfinite(raster_values), axis=0)
+            if not np.any(valid_mask):
+                raise HTTPException(status_code=400, detail="The GeoTIFF contains no valid pixels.")
+            transform = source.transform
+            if (
+                not np.all(np.isfinite(tuple(transform)))
+                or not np.isfinite(transform.determinant)
+                or transform.determinant == 0
+                or not np.all(np.isfinite(source.bounds))
+                or not np.all(np.isfinite(source.res))
+                or min(abs(value) for value in source.res) <= 0
+            ):
+                raise HTTPException(status_code=400, detail="The GeoTIFF has invalid spatial metadata.")
+            bands = _normalize_raster_bands(raster_values, valid_mask)
             if not np.all(valid_mask):
                 # Do not let nodata become a false zero-height visual signal. The
                 # model still receives an RGB image, but invalid pixels are filled
@@ -499,19 +546,19 @@ def _read_geotiff(raw: bytes) -> tuple[Image.Image, dict[str, object]]:
                 "driver": source.driver,
                 "validPixelFraction": float(np.mean(valid_mask)),
             }
-            return image, metadata
+            return image, metadata, valid_mask
     except HTTPException:
         raise
     except Exception as error:
         raise HTTPException(status_code=400, detail="The uploaded GeoTIFF could not be read.") from error
 
 
-def _read_image(raw: bytes, filename: str, content_type: str | None) -> tuple[Image.Image, dict[str, object] | None, str]:
+def _read_image(raw: bytes, filename: str, content_type: str | None) -> tuple[Image.Image, dict[str, object] | None, str, np.ndarray | None]:
     if _is_geotiff(filename, content_type):
-        image, metadata = _read_geotiff(raw)
-        return image, metadata, "geotiff"
+        image, metadata, valid_mask = _read_geotiff(raw)
+        return image, metadata, "geotiff", valid_mask
     try:
-        return Image.open(BytesIO(raw)).convert("RGB"), None, "image"
+        return Image.open(BytesIO(raw)).convert("RGB"), None, "image", None
     except Exception as error:
         raise HTTPException(status_code=400, detail="The uploaded file is not a readable image.") from error
 
@@ -531,6 +578,7 @@ async def predict(
     geospatial_metadata: dict[str, object] | None = None
     input_format = "example"
     is_fixture = False
+    validity_data: list[bool] | None = None
     semantic_map_url: str | None = None
     semantic_data: list[int] | None = None
     semantic_grid_size: int | None = None
@@ -558,37 +606,59 @@ async def predict(
         source_name = file.filename or "uploaded-image"
         if not _is_geotiff(source_name, file.content_type) and file.content_type not in {"image/png", "image/jpeg", "image/jpg"}:
             raise HTTPException(status_code=415, detail="Use a PNG, JPEG, or RGB GeoTIFF image.")
-        image, geospatial_metadata, input_format = _read_image(raw, source_name, file.content_type)
+        image, geospatial_metadata, input_format, valid_mask = _read_image(raw, source_name, file.content_type)
         try:
             if hasattr(model_service, "predict_result"):
                 prediction = model_service.predict_result(image)
-                height_map = prediction["height"]
-                if "boundary" in prediction:
-                    boundary_probability = np.asarray(prediction["boundary"], dtype=np.float32)
-                    if boundary_probability.shape != height_map.shape:
-                        raise ModelUnavailableError("The model returned a boundary map that is not aligned with its height map.")
-                    boundary_probability = np.clip(np.nan_to_num(boundary_probability, nan=0.0), 0.0, 1.0)
+                if not isinstance(prediction, dict) or "height" not in prediction:
+                    raise ModelUnavailableError("The model returned an invalid height map.")
+                height_map = np.asarray(prediction["height"], dtype=np.float32)
+                expected_shape = (image.height, image.width)
+                if height_map.shape != expected_shape or not np.all(np.isfinite(height_map)):
+                    raise ModelUnavailableError("The model returned an invalid height map that is misaligned or contains non-finite values.")
+                semantic_logits = prediction.get("semantic")
+                if semantic_logits is not None:
+                    semantic_logits = np.asarray(semantic_logits, dtype=np.float32)
+                    if semantic_logits.shape != (len(SEMANTIC_CLASSES), *expected_shape) or not np.all(np.isfinite(semantic_logits)):
+                        raise ModelUnavailableError("The model returned invalid semantic output that is misaligned or contains non-finite values.")
+                boundary_output = prediction.get("boundary")
+                if boundary_output is not None:
+                    boundary_output = np.asarray(boundary_output, dtype=np.float32)
+                    if boundary_output.shape != expected_shape or not np.all(np.isfinite(boundary_output)):
+                        raise ModelUnavailableError("The model returned invalid boundary output that is misaligned or contains non-finite values.")
+                if boundary_output is not None:
+                    boundary_probability = np.clip(boundary_output, 0.0, 1.0).copy()
+                    if valid_mask is not None:
+                        boundary_probability[~valid_mask] = 0.0
                     boundary_map_url, boundary_data = _write_boundary_asset(boundary_probability, prediction_id)
                     boundary_grid_size = SCENE_GRID_SIZE
                     boundary_source = "trained"
-                    boundary_confidence = float(np.mean(np.maximum(boundary_probability, 1.0 - boundary_probability)))
-                if "semantic" in prediction:
-                    if prediction["semantic"].shape[0] != len(SEMANTIC_CLASSES):
-                        raise ModelUnavailableError("The model returned an invalid number of GAMUS semantic channels.")
-                    semantic_labels, semantic_grid = _prepare_semantic_labels(prediction["semantic"], SCENE_GRID_SIZE, boundary_probability)
+                    confidence_values = boundary_probability if valid_mask is None else boundary_probability[valid_mask]
+                    boundary_confidence = float(np.mean(np.maximum(confidence_values, 1.0 - confidence_values)))
+                if semantic_logits is not None:
+                    semantic_labels, semantic_grid = _prepare_semantic_labels(semantic_logits, SCENE_GRID_SIZE, boundary_probability)
+                    if valid_mask is not None:
+                        semantic_labels[~valid_mask] = 0
+                        semantic_grid_mask = _scene_validity_mask(valid_mask)
+                        semantic_grid[~semantic_grid_mask] = 0
                     if semantic_labels.size and (semantic_labels.min() < 0 or semantic_labels.max() >= len(SEMANTIC_CLASSES)):
                         raise ModelUnavailableError("The model returned a semantic class outside GAMUS IDs 0..6.")
                     semantic_map_url, semantic_data = _write_semantic_asset(semantic_grid, prediction_id)
                     semantic_grid_size = SCENE_GRID_SIZE
                     semantic_source = "trained"
             else:
-                height_map = model_service.predict(image)
+                height_map = np.asarray(model_service.predict(image), dtype=np.float32)
+                if height_map.shape != (image.height, image.width) or not np.all(np.isfinite(height_map)):
+                    raise ModelUnavailableError("The model returned an invalid height map that is misaligned or contains non-finite values.")
         except ModelUnavailableError as error:
             raise HTTPException(status_code=503, detail=str(error)) from error
-        input_url, height_url, height_data, min_height, max_height = _write_model_prediction_assets(
+        except (TypeError, ValueError, KeyError) as error:
+            raise HTTPException(status_code=503, detail="The model returned an invalid prediction.") from error
+        input_url, height_url, height_data, min_height, max_height, validity_data = _write_model_prediction_assets(
             image,
             height_map,
             prediction_id,
+            valid_mask,
         )
         full_building_regions = _building_regions(
             height_data,
@@ -663,6 +733,7 @@ async def predict(
         "predictionHeight": prediction_height,
         "gridSize": scene_grid_size,
         "heightData": height_data,
+        "validityData": validity_data,
         "semanticClasses": list(SEMANTIC_CLASSES),
         "semanticGridSize": semantic_grid_size,
         "semanticData": semantic_data,

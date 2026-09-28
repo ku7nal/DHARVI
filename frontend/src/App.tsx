@@ -326,6 +326,7 @@ function App() {
                 <div className={`result-body ${inspectorOpen ? "" : "inspector-closed"}`}>
                   <ReconstructionViewer
                     heightData={prediction.heightData}
+                    validityData={prediction.validityData}
                     gridSize={prediction.gridSize}
                     maxHeight={prediction.maxHeight}
                     heightReference={prediction.heightReference}

@@ -140,8 +140,8 @@ class FixturePredictionTests(unittest.TestCase):
         self.assertEqual(result["semanticSource"], "unavailable")
         self.assertIsNone(result["semanticData"])
         self.assertEqual({item["id"] for item in result["semanticClasses"]}, set(range(7)))
-        self.assertEqual(result["predictionWidth"], 518)
-        self.assertEqual(result["predictionHeight"], 518)
+        self.assertEqual(result["predictionWidth"], 32)
+        self.assertEqual(result["predictionHeight"], 24)
         self.assertEqual(result["minHeight"], 12.0)
         self.assertEqual(result["maxHeight"], 12.0)
         self.assertEqual(self.client.get(result["inputImageUrl"]).status_code, 200)
@@ -170,7 +170,7 @@ class FixturePredictionTests(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         result = response.json()
         self.assertEqual((result["width"], result["height"]), (1024, 1024))
-        self.assertEqual((result["predictionWidth"], result["predictionHeight"]), (518, 518))
+        self.assertEqual((result["predictionWidth"], result["predictionHeight"]), (1024, 1024))
         self.assertEqual(len(result["heightData"]), 256 * 256)
 
     def test_gamus_example_returns_a_fixture_prediction(self) -> None:
@@ -258,7 +258,7 @@ class FixturePredictionTests(unittest.TestCase):
         self.assertEqual(result["boundaryGridSize"], 256)
         self.assertEqual(len(result["boundaryData"]), 256 * 256)
         self.assertGreater(result["boundaryConfidence"], 0.9)
-        self.assertEqual(Image.open(BytesIO(self.client.get(result["boundaryMapUrl"]).content)).size, (10, 8))
+        self.assertEqual(Image.open(BytesIO(self.client.get(result["boundaryMapUrl"]).content)).size, (32, 24))
 
     def test_semantic_logits_are_resized_before_scene_labels_are_selected(self) -> None:
         from app.main import _prepare_semantic_labels
@@ -345,6 +345,97 @@ class FixturePredictionTests(unittest.TestCase):
         self.assertEqual(result["resultType"], "estimated_ndsm")
         self.assertEqual(result["calibration"]["status"], "insufficient_ground_evidence")
 
+    def test_geotiff_nodata_is_excluded_from_prediction_and_previews(self) -> None:
+        main_module.model_service = GroundSemanticModelService()
+        with NamedTemporaryFile(suffix=".tif") as raster_file:
+            bands = np.full((3, 8, 8), 120, dtype=np.uint8)
+            bands[:, :, :2] = 0
+            with rasterio.open(
+                raster_file.name,
+                "w",
+                driver="GTiff",
+                width=8,
+                height=8,
+                count=3,
+                dtype="uint8",
+                nodata=0,
+                crs="EPSG:4326",
+                transform=from_origin(72.8, 19.1, 0.0001, 0.0001),
+            ) as dataset:
+                dataset.write(bands)
+            raster_file.seek(0)
+            response = self.client.post(
+                "/api/predict",
+                files={"file": ("masked.tif", raster_file.read(), "image/tiff")},
+            )
+
+        self.assertEqual(response.status_code, 200)
+        result = response.json()
+        self.assertEqual(len(result["validityData"]), result["gridSize"] ** 2)
+        self.assertFalse(result["validityData"][0])
+        self.assertTrue(result["validityData"][-1])
+        self.assertEqual(result["heightData"][0], 0)
+        self.assertEqual(result["semanticData"][0], 0)
+        self.assertEqual(result["semanticData"][-1], 1)
+        with Image.open(BytesIO(self.client.get(result["inputImageUrl"]).content)) as preview:
+            self.assertEqual(preview.mode, "RGBA")
+            self.assertEqual(preview.getpixel((0, 0))[3], 0)
+            self.assertEqual(preview.getpixel((4, 4))[3], 255)
+        with Image.open(BytesIO(self.client.get(result["heightMapUrl"]).content)) as preview:
+            self.assertEqual(preview.mode, "RGBA")
+            self.assertEqual(preview.getpixel((0, 0))[3], 0)
+            self.assertEqual(preview.getpixel((4, 4))[3], 255)
+
+    def test_geotiff_with_no_valid_pixels_is_rejected(self) -> None:
+        with NamedTemporaryFile(suffix=".tif") as raster_file:
+            with rasterio.open(
+                raster_file.name,
+                "w",
+                driver="GTiff",
+                width=4,
+                height=4,
+                count=3,
+                dtype="uint8",
+                nodata=0,
+            ) as dataset:
+                dataset.write(np.zeros((3, 4, 4), dtype=np.uint8))
+            raster_file.seek(0)
+            response = self.client.post(
+                "/api/predict",
+                files={"file": ("empty.tif", raster_file.read(), "image/tiff")},
+            )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("no valid pixels", response.json()["detail"])
+
+    def test_model_output_must_be_aligned_and_finite(self) -> None:
+        original_model_service = main_module.model_service
+        try:
+            for output in (
+                np.ones((2, 2), dtype=np.float32),
+                np.full((24, 32), np.nan, dtype=np.float32),
+            ):
+                main_module.model_service = InvalidOutputModelService(output)
+                image_bytes = BytesIO()
+                Image.new("RGB", (32, 24), "#8899aa").save(image_bytes, format="PNG")
+                response = self.client.post(
+                    "/api/predict",
+                    files={"file": ("scene.png", image_bytes.getvalue(), "image/png")},
+                )
+                self.assertEqual(response.status_code, 503)
+                self.assertIn("invalid height map", response.json()["detail"])
+        finally:
+            main_module.model_service = original_model_service
+
+    def test_malformed_geotiff_returns_a_clear_client_error(self) -> None:
+        response = self.client.post(
+            "/api/predict",
+            files={"file": ("broken.tif", b"not a GeoTIFF", "image/tiff")},
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("GeoTIFF could not be read", response.json()["detail"])
+
     def test_calibrated_geotiff_returns_metric_dsm_download(self) -> None:
         main_module.model_service = CalibratedModelService()
         with NamedTemporaryFile(suffix=".tif") as raster_file:
@@ -392,7 +483,10 @@ class FixturePredictionTests(unittest.TestCase):
             )
 
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.json()["geospatial"]["bands"], 4)
+        result = response.json()
+        self.assertEqual(result["geospatial"]["bands"], 4)
+        self.assertEqual(result["calibration"]["status"], "missing_spatial_reference")
+        self.assertEqual(result["heightReference"], "relative")
 
     def test_multispectral_geotiff_is_rejected(self) -> None:
         with NamedTemporaryFile(suffix=".tif") as raster_file:
@@ -446,7 +540,25 @@ class BenchmarkTests(unittest.TestCase):
 
 class FakeModelService:
     def predict(self, image: Image.Image) -> np.ndarray:
-        return np.full((518, 518), 12.0, dtype=np.float32)
+        return np.full((image.height, image.width), 12.0, dtype=np.float32)
+
+
+class InvalidOutputModelService:
+    def __init__(self, output: np.ndarray) -> None:
+        self.output = output
+
+    def predict(self, image: Image.Image) -> np.ndarray:
+        return self.output
+
+
+class GroundSemanticModelService:
+    def predict_result(self, image: Image.Image) -> dict[str, np.ndarray]:
+        semantic = np.full((7, image.height, image.width), -10.0, dtype=np.float32)
+        semantic[1] = 10.0
+        return {
+            "height": np.full((image.height, image.width), 12.0, dtype=np.float32),
+            "semantic": semantic,
+        }
 
 
 class FailingModelService:
@@ -456,14 +568,14 @@ class FailingModelService:
 
 class TrainedSemanticModelService:
     def predict_result(self, image: Image.Image) -> dict[str, np.ndarray]:
-        classes = np.indices((8, 10)).sum(axis=0) % 7
-        semantic = np.full((7, 8, 10), -10.0, dtype=np.float32)
+        classes = np.indices((image.height, image.width)).sum(axis=0) % 7
+        semantic = np.full((7, image.height, image.width), -10.0, dtype=np.float32)
         for class_id in range(7):
             semantic[class_id][classes == class_id] = 10.0
-        boundary = np.zeros((8, 10), dtype=np.float32)
+        boundary = np.zeros((image.height, image.width), dtype=np.float32)
         boundary[0, :] = 1.0
         return {
-            "height": np.full((8, 10), 12.0, dtype=np.float32),
+            "height": np.full((image.height, image.width), 12.0, dtype=np.float32),
             "semantic": semantic,
             "boundary": boundary,
         }
