@@ -9,6 +9,7 @@ from pydantic import BaseModel, Field
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from PIL import Image, ImageDraw, ImageFilter, ImageOps
+import rasterio
 from rasterio.io import MemoryFile
 
 from app.building_footprints import clean_semantic_labels, extract_building_footprints
@@ -556,6 +557,8 @@ def _read_geotiff(raw: bytes) -> tuple[Image.Image, dict[str, object], np.ndarra
                 },
                 "transform": [float(value) for value in source.transform],
                 "resolution": [float(value) for value in source.res],
+                "width": int(source.width),
+                "height": int(source.height),
                 "bands": source.count,
                 "driver": source.driver,
                 "validPixelFraction": float(np.mean(valid_mask)),
@@ -697,7 +700,7 @@ async def predict(
                     "groundPixelCount": 0,
                 }
             else:
-                dsm, calibration = calibrate_dsm(height_map, semantic_labels, ground_elevation, points)
+                dsm, calibration = calibrate_dsm(height_map, semantic_labels, ground_elevation, points, valid_mask)
                 if dsm is not None:
                     dsm_path = MEDIA_DIR / f"{prediction_id}-dsm.tif"
                     try:
@@ -709,6 +712,8 @@ async def predict(
                             "error": str(error),
                             "groundPixelCount": calibration.get("groundPixelCount", 0),
                         }
+                    except (OSError, rasterio.errors.RasterioError) as error:
+                        calibration = {**calibration, "status": "dsm_write_failed", "error": str(error)}
                     else:
                         dsm_url = f"/media/{dsm_path.name}"
     elif example_id == "gamus-urban-demo":

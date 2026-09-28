@@ -1,6 +1,7 @@
 import unittest
 from io import BytesIO
 from tempfile import NamedTemporaryFile
+from unittest.mock import patch
 
 from fastapi.testclient import TestClient
 import numpy as np
@@ -485,8 +486,11 @@ class FixturePredictionTests(unittest.TestCase):
                 dtype="uint8",
                 crs="EPSG:4326",
                 transform=transform,
+                nodata=0,
             ) as dataset:
-                dataset.write(np.full((3, 6, 8), 120, dtype=np.uint8))
+                source_pixels = np.full((3, 6, 8), 120, dtype=np.uint8)
+                source_pixels[:, 0, 0] = 0
+                dataset.write(source_pixels)
             raster_file.seek(0)
             response = self.client.post(
                 "/api/predict",
@@ -499,13 +503,33 @@ class FixturePredictionTests(unittest.TestCase):
         self.assertEqual(result["resultType"], "metric_dsm")
         self.assertEqual(result["heightReference"], "absolute")
         self.assertEqual(result["calibration"]["status"], "calibrated")
+        self.assertEqual(result["calibration"]["groundPixelCount"], 47)
         dsm_response = self.client.get(result["dsmUrl"])
         self.assertEqual(dsm_response.status_code, 200)
         with MemoryFile(dsm_response.content).open() as dataset:
             self.assertEqual(dataset.crs.to_string(), "EPSG:4326")
             self.assertEqual(dataset.transform, transform)
             self.assertEqual(dataset.dtypes[0], "float32")
-            np.testing.assert_allclose(dataset.read(1), 120.5, atol=1e-5)
+            self.assertEqual((dataset.width, dataset.height, dataset.count), (8, 6, 1))
+            self.assertEqual(dataset.nodata, -9999.0)
+            self.assertEqual(dataset.read_masks(1)[0, 0], 0)
+            np.testing.assert_allclose(dataset.read(1, masked=True).compressed(), 120.5, atol=1e-5)
+
+    def test_dsm_write_failure_returns_no_download(self) -> None:
+        main_module.model_service = CalibratedModelService()
+        with NamedTemporaryFile(suffix=".tif") as raster_file:
+            with rasterio.open(raster_file.name, "w", driver="GTiff", width=8, height=6, count=3,
+                               dtype="uint8", crs="EPSG:4326", transform=from_origin(72.8, 19.1, 0.0001, 0.0001)) as dataset:
+                dataset.write(np.full((3, 6, 8), 120, dtype=np.uint8))
+            raster_file.seek(0)
+            with patch.object(main_module, "write_dsm_geotiff", side_effect=OSError("disk full")):
+                response = self.client.post("/api/predict", data={"ground_elevation": "120.5"},
+                    files={"file": ("CITY.TIF", raster_file.read(), "image/tiff")})
+
+        self.assertEqual(response.status_code, 200)
+        result = response.json()
+        self.assertEqual(result["calibration"]["status"], "dsm_write_failed")
+        self.assertIsNone(result["dsmUrl"])
 
     def test_rgba_geotiff_is_accepted(self) -> None:
         with NamedTemporaryFile(suffix=".tiff") as raster_file:

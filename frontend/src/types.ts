@@ -36,7 +36,7 @@ type PredictionResult = {
 };
 
 type CalibrationMetadata = {
-  status: "not_applicable" | "calibrated" | "insufficient_ground_evidence" | "invalid_ground_control_points" | "missing_spatial_reference" | "invalid_spatial_metadata";
+  status: "not_applicable" | "calibrated" | "insufficient_ground_evidence" | "invalid_ground_control_points" | "missing_spatial_reference" | "invalid_spatial_metadata" | "dsm_write_failed";
   method: string | null;
   confidence: number | null;
   residualError: number | null;
