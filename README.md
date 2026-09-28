@@ -1,67 +1,95 @@
 # DepthWizard
 
-DepthWizard turns aerial RGB imagery into an interactive estimated nDSM visualization.
+### From aerial RGB imagery to an interactive 3D surface
 
-## Local development
+DepthWizard estimates surface height from a single aerial image, then turns the result into a navigable 3D scene. It accepts ordinary images for relative-height visualization and georeferenced GeoTIFFs for an optional, evidence-based metric DSM export.
 
-### One-command local startup
+> Metric elevation is conditional: GeoTIFF coordinates alone do not establish height scale. A metric DSM is exported only when the input has usable spatial metadata and calibration has sufficient ground-elevation evidence or valid ground-control points.
 
-After installing the dependencies below, start both services with:
+## Overview
 
-```bash
-./scripts/start-local.sh
+Single-image depth models estimate relative structure, not surveyed elevation. DepthWizard applies a fine-tuned Depth Anything V2 model to aerial RGB imagery and provides tools to inspect the resulting surface, buildings, and slopes. For a GeoTIFF, a calibration step can map estimated height to metric elevation and write a source-aligned DSM GeoTIFF.
+
+The project is a local prototype for reconstruction and inspection. Its current benchmark examples are deterministic fixtures, not independent survey validation; see [validation status](docs/validation/landscape-validation.md) before interpreting accuracy claims.
+
+## Two input paths
+
+| Input | Processing | Result |
+| --- | --- | --- |
+| PNG or JPEG | Decode and validate, preprocess RGB, estimate height | Relative estimated nDSM for 3D inspection; no geographic coordinates or absolute height claim |
+| RGB/RGBA GeoTIFF | Validate bands, CRS, affine transform, nodata, and valid pixels; preserve source alignment and validity | Estimated surface preview; optional calibrated DSM download when ground evidence supports calibration |
+
+```mermaid
+flowchart LR
+    P[PNG / JPEG] --> D[Decode and validate]
+    T[RGB / RGBA GeoTIFF] --> G[Validate raster and spatial metadata]
+    G --> M[Preserve transform, CRS, nodata, validity mask]
+    D --> R[Prepare RGB]
+    G --> R
+    R --> I[Depth Anything V2 inference]
+    I --> H[Estimated height surface]
+    H --> V[Interactive 3D preview]
+    M --> C[Optional ground-evidence calibration]
+    H --> C
+    C --> E[Source-aligned metric DSM GeoTIFF, if calibration succeeds]
 ```
 
-The script uses `DEPTHWIZARD_CHECKPOINT` when set, otherwise `dinosaur.pth`. It checks the backend virtual environment, frontend dependencies, and checkpoint before starting FastAPI on port 8000 and Vite on port 5173. Run `./scripts/verify-deliverable.sh` for the complete pre-demo check.
+## What it does
 
-### Backend
+- Reconstructs large images with overlapping 518 × 518 tiles, 50% overlap, weighted blending, and horizontal-flip test-time augmentation.
+- Provides a 3D scene with terrain and building geometry, semantic overlays when the selected model supplies them, height inspection, slope visualization, and orbit, fly-through, and top-down navigation.
+- Preserves valid-pixel handling and source georeferencing through the GeoTIFF workflow; failed or unsupported calibration is reported rather than silently presented as metric output.
+- Includes GAMUS data audit and multitask training workflows for height, semantic classes, and building boundaries.
+- Provides landscape comparison examples and metric displays for exploring the evaluation workflow. The checked-in benchmark fixtures are not held-out metric validation data.
+
+## What it is, and is not
+
+| DepthWizard is | DepthWizard is not |
+| --- | --- |
+| A single-image aerial surface reconstruction prototype | A replacement for LiDAR, stereo mapping, or a surveyed DSM |
+| A relative-height visualizer for PNG/JPEG inputs | A source of absolute elevation from ordinary image pixels |
+| A GeoTIFF workflow that can export calibrated, georeferenced DSMs when evidence is adequate | A guarantee that every GeoTIFF can be calibrated or that its output is survey-accurate |
+| A local interactive 3D inspection tool | Proof of accuracy across urban, sparse, hilly, and forested landscapes |
+
+## Local setup
+
+### Requirements
+
+- Python 3.10+ with the backend requirements supported by your platform
+- Node.js and npm
+- A fine-tuned checkpoint compatible with DepthWizard, such as `dinosaur.pth`
+- Internet access on the first live inference if the Hugging Face base model is not already cached
+
+### Install
 
 ```bash
 cd backend
 python3 -m venv .venv
 .venv/bin/python -m pip install -r requirements.txt
-.venv/bin/python -m uvicorn app.main:app --reload --port 8000
+
+cd ../frontend
+npm install
 ```
 
-Use the virtual-environment interpreter to start Uvicorn. On macOS, the system/Homebrew
-Python may resolve a different PyTorch build and load a second `libomp.dylib`.
-
-Place the fine-tuned checkpoint at the repository root as `dinosaur.pth`, or point to it with
-`DEPTHWIZARD_CHECKPOINT=/absolute/path/to/checkpoint.pth`. The first real image upload also
-downloads the base `depth-anything/Depth-Anything-V2-Small-hf` weights from Hugging Face and
-caches them locally. The `Try a GAMUS example` action remains fixture-backed for fast UI checks.
-
-### Frontend
+Put the checkpoint at the repository root as `dinosaur.pth`, or set `DEPTHWIZARD_CHECKPOINT` to its absolute path. Then start both services from the repository root:
 
 ```bash
-cd frontend
-npm install
-npm run dev
+./scripts/start-local.sh
 ```
 
-Open `http://localhost:5173` in a browser. Uploaded PNG, JPG/JPEG, RGB GeoTIFF, and RGBA GeoTIFF
-files use the fine-tuned model and render an estimated nDSM scene in meters. The frontend
-reports whether the FastAPI health endpoint is reachable.
+Open <http://localhost:5173>. The frontend uses the FastAPI backend on port 8000. On macOS, start Uvicorn with the backend virtual-environment Python; using another Python installation can load an incompatible PyTorch/OpenMP runtime.
 
-Uploads are limited to 256 MB by default. Set `DEPTHWIZARD_MAX_UPLOAD_BYTES` for a controlled
-offline demo with a different limit.
+Uploads are limited to 256 MB by default. Set `DEPTHWIZARD_MAX_UPLOAD_BYTES` to change the limit for a controlled local demo.
 
-## Reconstruction modes
+## GeoTIFF calibration and export
 
-Live inference uses overlapping 518×518 tiles with 50% overlap, weighted blending, and
-horizontal-flip test-time augmentation, so large images are reconstructed across their full
-footprint. Model predictions are downsampled to a 256×256 scene grid. Building regions are
-currently derived from the height map as a labeled fallback; the renderer turns them into
-clean walls and inferred flat/gabled roofs while retaining a continuous terrain surface.
-The optional RGB relief layer remains available for inspecting the original height-field mode.
+Upload an RGB or RGBA GeoTIFF containing valid CRS and affine-transform metadata. To request metric calibration, provide either a ground elevation or valid ground-control points. Calibration can fail or remain unavailable when spatial metadata, valid ground pixels, or control points are insufficient. In that case, the estimated surface remains relative and no metric DSM should be claimed.
 
-The GAMUS semantic-head training path is not enabled by default in this checkout: it requires
-the locally downloaded `classes/` data and a newly trained multitask checkpoint.
+The exported DSM is aligned to the source raster and preserves its geospatial metadata and validity mask. Calibration provenance and confidence describe the supplied evidence and fit; they do not independently verify accuracy against a surveyed reference. See the [calibration section in the deliverable guide](docs/hackathon-deliverable.md#evidence-and-limitations) for accepted inputs and limitations.
 
-## GAMUS multitask training
+## GAMUS training
 
-After downloading GAMUS into a directory containing `images/`, `heights/`, and `classes/`,
-run the reproducible training/evaluation path from the backend environment:
+The optional multitask training path requires a local GAMUS dataset with `images/`, `heights/`, and `classes/` directories. It is not enabled by default in the live inference setup; semantic predictions require a compatible multitask checkpoint.
 
 ```bash
 cd backend
@@ -71,40 +99,22 @@ cd backend
   --validation-group Philadelphia
 ```
 
-The loader rejects spatially mismatched triplets and ambiguous RGB class masks without an
-explicit palette. Splits are geographic groups rather than random tiles. Validation uses
-overlapping full-image inference and reports height RMSE/MAE/correlation, semantic mIoU,
-building F1, and building-boundary F1. The multitask checkpoint is saved separately and
-records the baseline checkpoint and baseline height metrics used for initialization.
+For the Kaggle dataset audit and final training workflow, see [Kaggle training](docs/kaggle-final-training.md).
 
-### Kaggle dataset audit
+## Repository map
 
-Attach the complete, versioned GAMUS release to Kaggle as a read-only Dataset. Before training,
-run the audit against the mounted input; it verifies every train/val/test RGB, height, and semantic
-triplet and writes a compact manifest without copying the dataset into `/kaggle/working`:
-
-```bash
-cd backend
-.venv/bin/python -m training.gamus_audit \
-  --root /kaggle/input/gamus \
-  --output /kaggle/working/depthwizard/gamus_manifest.json \
-  --dataset-id owner/gamus \
-  --dataset-revision 42 \
-  --image-key image --height-key height --class-key classes
+```text
+backend/app/        FastAPI API, model inference, geospatial calibration and export
+backend/training/   GAMUS audit, model training, and evaluation workflows
+frontend/src/       Upload interface, inspection tools, and Three.js scene
+docs/               Deliverable, validation, and training guides
+scripts/            Local startup and demo verification scripts
 ```
 
-The audit fails on missing or ambiguous pairs, orphan files, unsupported shapes, invalid semantic
-IDs, and spatial mismatches. It records HDF5 keys, shapes, dtypes, source groups, height statistics,
-invalid-pixel counts, class distributions, and building-pixel fractions. The Kaggle training command
-runs the same audit automatically before constructing the model; use `--audit-only` to stop after
-the manifest is written.
+## Project status and limitations
 
-### Final full-data Kaggle training
+DepthWizard demonstrates an end-to-end local workflow from image upload to estimated surface and interactive scene, with conditional GeoTIFF DSM export. The current checked-in landscape examples exercise the UI and comparison pipeline but are synthetic stress fixtures, not held-out survey measurements. GAMUS is urban-focused here; generalization to sparse, hilly, and forested scenes has not been established. Canopy, terrain relief, occlusion, and low-contrast areas can produce substantial errors.
 
-The final multiscale Depth Anything V2 Base pipeline is in
-[`backend/training/kaggle_final_train.py`](backend/training/kaggle_final_train.py), with the
-shared model wrapper in [`backend/training/depthwizard_model.py`](backend/training/depthwizard_model.py).
-The copy-paste Kaggle cells are documented in
-[`docs/kaggle-final-training.md`](docs/kaggle-final-training.md). Run the full-data two-epoch
-`--smoke-test` first; it uses every attached train/validation/test sample and only reduces epochs
-and crops-per-sample. Run the same command without `--smoke-test` for the final checkpoint.
+Before presenting accuracy results, evaluate predictions against spatially aligned, metric reference data with a documented coordinate/vertical datum and held-out geographic areas. The validation workspace reports RMSE, MAE, and correlation, but those metrics are meaningful only when the reference supports metric comparison.
+
+For the demo workflow and pre-presentation checklist, see [the hackathon deliverable guide](docs/hackathon-deliverable.md).
